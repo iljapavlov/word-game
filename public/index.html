@@ -17,29 +17,12 @@
   <button id="joinButton">Join Room</button>
 
   <script>
-    function canFormWord(givenWord, submittedWord) {
-      const givenFreq = {};
-      for (let char of givenWord) {
-        givenFreq[char] = (givenFreq[char] || 0) + 1;
-      }
-      const submittedFreq = {};
-      for (let char of submittedWord) {
-        submittedFreq[char] = (submittedFreq[char] || 0) + 1;
-      }
-      for (let char in submittedFreq) {
-        if (!givenFreq[char] || submittedFreq[char] > givenFreq[char]) {
-          return false;
-        }
-      }
-      return true;
-    }
-
     const socket = io();
     socket.on('connect', () => {
       console.log('Connected to server');
     });
 
-    // Menu Scene: Room joining
+    // Menu Scene: Room joining interface
     class MenuScene extends Phaser.Scene {
       constructor() {
         super({ key: 'MenuScene' });
@@ -63,13 +46,13 @@
         });
 
         joinButton.onclick = () => {
-            const roomId = roomIdInput.value;
-            if (roomId) socket.emit('joinRoom', roomId);
+          const roomId = roomIdInput.value;
+          if (roomId) socket.emit('joinRoom', roomId);
         };
       }
     }
 
-    // Waiting Scene: Wait for another player
+    // Waiting Scene: Wait for second player
     class WaitingScene extends Phaser.Scene {
       constructor() {
         super({ key: 'WaitingScene' });
@@ -82,68 +65,130 @@
       }
     }
 
-    // Game Scene: Actual gameplay
+    // Game Scene: Main gameplay
     class GameScene extends Phaser.Scene {
       constructor() {
         super({ key: 'GameScene' });
+        this.submittedWords = new Set(); // Track submitted words
+        this.multiplier = 1; // Initialize damage multiplier
       }
 
       create() {
-        // Castles (center at y=500)
-        this.add.rectangle(100, 500, 100, 100, 0x00ff00); // Player's castle
-        this.add.rectangle(700, 500, 100, 100, 0xff0000); // Opponent's castle
-
-        // Castle labels (below castles)
-        this.add.text(100, 560, 'Your Castle', { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
-        this.add.text(700, 560, 'Opponent’s Castle', { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
-
-        // Player HP setup
+        // Initialize HP
         this.playerHP = 100;
+        this.opponentHP = 100;
+        this.gameEnded = false;
+
+        // Draw castles
+        this.add.rectangle(150, 500, 100, 100, 0x00ff00); // Player's castle (moved right)
+        this.add.rectangle(850, 500, 100, 100, 0xff0000); // Opponent's castle (moved right)
+
+        // Castle labels
+        this.add.text(150, 560, 'Your Castle', { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
+        this.add.text(850, 560, 'Opponents Castle', { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
+
+        // Player HP bar and text
         this.playerHPBar = this.add.graphics();
         this.playerHPBar.lineStyle(2, 0xffffff, 1);
-        this.playerHPBar.strokeRect(50, 420, 100, 10);
+        this.playerHPBar.strokeRect(100, 420, 100, 10);
         this.playerHPBar.fillStyle(0x00ff00, 1);
-        this.playerHPBar.fillRect(50, 420, 100, 10);
-        this.playerHPText = this.add.text(100, 410, '100', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
+        this.playerHPBar.fillRect(100, 420, 100, 10);
+        this.playerHPText = this.add.text(150, 410, '100', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
 
-        // Opponent HP setup (already present, just ensuring clarity)
-        this.opponentHP = 100;
+        // Opponent HP bar and text
         this.opponentHPBar = this.add.graphics();
         this.opponentHPBar.lineStyle(2, 0xffffff, 1);
-        this.opponentHPBar.strokeRect(650, 420, 100, 10);
+        this.opponentHPBar.strokeRect(800, 420, 100, 10);
         this.opponentHPBar.fillStyle(0xff0000, 1);
-        this.opponentHPBar.fillRect(650, 420, 100, 10);
-        this.opponentHPText = this.add.text(700, 410, '100', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
+        this.opponentHPBar.fillRect(800, 420, 100, 10);
+        this.opponentHPText = this.add.text(850, 410, '100', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
 
         // Word and input UI
-        this.wordText = this.add.text(400, 50, 'многоножка', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
-        this.inputText = this.add.text(400, 150, '', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
-        this.damageText = this.add.text(400, 100, '', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
+        this.wordText = this.add.text(500, 50, 'многоножка', { fontSize: '40px', fill: '#fff' }).setOrigin(0.5); // Even bigger font
+        this.inputText = this.add.text(500, 150, '', { fontSize: '28px', fill: '#fff' }).setOrigin(0.5);
+        this.damageText = this.add.text(500, 100, '', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
+        
+        // Multiplier display
+        this.multiplierText = this.add.text(500, 200, 'Multiplier: x1.0', { fontSize: '20px', fill: '#fff' }).setOrigin(0.5);
+        
+        // Game results
+        this.resultText = this.add.text(500, 300, '', { fontSize: '48px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
+        this.resultText.setVisible(false);
 
-        // HP tracking
-        this.opponentHP = 100;
-        this.playerInput = ''; // Initialize playerInput
-        this.updateOpponentHPBar();
+        this.playerInput = ''; // Initialize player input
+        this.givenWord = 'многоножка'; // Store the given word
 
-        // Keyboard input logic
+        // Update HP bars based on server data
+        socket.on('updateHP', (data) => {
+          this.playerHP = data.yourHP;
+          this.opponentHP = data.opponentHP;
+          this.updatePlayerHPBar();
+          this.updateOpponentHPBar();
+
+          // Check for game end
+          if (!this.gameEnded && (this.playerHP <=0 || this.opponentHP <=0)) {
+            this.endGame();
+          }
+        });
+        
+        // Handle word validation result
+        socket.on('wordResult', (result) => {
+          if (result.valid) {
+            this.damageText.setText(`Нанесено урона: ${result.damage}`);
+            this.damageText.setColor('#00ff00');
+            
+            // Increase multiplier on successful word
+            if (result.increaseMultiplier) {
+              this.multiplier += 0.2;
+              this.updateMultiplierDisplay();
+            }
+          } else {
+            this.damageText.setText(`Недопустимое слово: ${result.reason}`);
+            this.damageText.setColor('#ff0000');
+            
+            // Reset multiplier on failed word
+            if (result.resetMultiplier) {
+              this.multiplier = 1.0;
+              this.updateMultiplierDisplay();
+            }
+          }
+        });
+
+        // Handle keyboard input
         this.input.keyboard.on('keydown', (event) => {
-            if (event.key === 'Enter') {
-                if (this.playerInput) {
-                  const givenWord = 'многоножка';
-                  if (canFormWord(givenWord, this.playerInput)) {
-                    const damage = this.playerInput.length;
-                    console.log(`Valid word: ${this.playerInput}, Damage: ${damage}`);
-                    this.opponentHP = Math.max(0, this.opponentHP - damage);
-                    this.updateOpponentHPBar();
-                    this.damageText.setText(`Нанесено урона: ${damage}`);
-                    socket.emit('dealDamage', { damage: damage }); // Send damage to server
-                  } else {
-                    console.log('Invalid word');
-                    this.damageText.setText('Недопустимое слово');
-                  }
-                  this.playerInput = '';
-                  this.inputText.setText('');
-                }
+          if (event.key === 'Enter') {
+            if (this.playerInput) {
+              // Check if word is too short
+              if (this.playerInput.length < 3) {
+                this.damageText.setText('Слово должно быть не менее 3 букв');
+                this.damageText.setColor('#ff0000');
+                this.multiplier = 1.0;
+                this.updateMultiplierDisplay();
+              }
+              // Check if word is the same as given word
+              else if (this.playerInput.toLowerCase() === this.givenWord.toLowerCase()) {
+                this.damageText.setText('Нельзя использовать исходное слово');
+                this.damageText.setColor('#ff0000');
+                this.multiplier = 1.0;
+                this.updateMultiplierDisplay();
+              } 
+              // Check if word was already submitted by this player
+              else if (this.submittedWords.has(this.playerInput.toLowerCase())) {
+                this.damageText.setText('Это слово уже использовано');
+                this.damageText.setColor('#ff0000');
+                this.multiplier = 1.0;
+                this.updateMultiplierDisplay();
+              }
+              else {
+                socket.emit('submitWord', { 
+                  word: this.playerInput,
+                  multiplier: this.multiplier
+                });
+                this.submittedWords.add(this.playerInput.toLowerCase()); // Add to submitted words
+              }
+              this.playerInput = '';
+              this.inputText.setText('');
+            }
           } else if (event.key === 'Backspace') {
             this.playerInput = this.playerInput.slice(0, -1);
             this.inputText.setText(this.playerInput);
@@ -151,40 +196,95 @@
             this.playerInput += event.key;
             this.inputText.setText(this.playerInput);
           }
-
-          // Listen for damage from opponent
-          socket.on('receiveDamage', (data) => {
-              this.playerHP = Math.max(0, this.playerHP - data.damage);
-              this.updatePlayerHPBar();
-          });
         });
       }
 
-      // Add this method to GameScene
+      updateMultiplierDisplay() {
+        // Format multiplier to one decimal place
+        const formattedMultiplier = this.multiplier.toFixed(1);
+        this.multiplierText.setText(`Multiplier: x${formattedMultiplier}`);
+        
+        // Change color based on multiplier value
+        if (this.multiplier > 2.0) {
+          this.multiplierText.setColor('#ff9900'); // Orange for high multiplier
+        } else if (this.multiplier > 1.0) {
+          this.multiplierText.setColor('#00ff00'); // Green for increased multiplier
+        } else {
+          this.multiplierText.setColor('#ffffff'); // White for base multiplier
+        }
+      }
+
       updatePlayerHPBar() {
         const hpPercentage = this.playerHP / 100;
         this.playerHPBar.clear();
         this.playerHPBar.lineStyle(2, 0xffffff, 1);
-        this.playerHPBar.strokeRect(50, 420, 100, 10);
-        this.playerHPBar.fillStyle(0x00ff00, 1);
-        this.playerHPBar.fillRect(50, 420, 100 * hpPercentage, 10);
+        this.playerHPBar.strokeRect(100, 420, 100, 10);
+        
+        // Color gradient based on HP percentage
+        let fillColor;
+        if (hpPercentage > 0.5) {
+          // Green to yellow gradient (100% to 50%)
+          const greenComponent = Math.floor(255 * (hpPercentage - 0.5) * 2);
+          fillColor = Phaser.Display.Color.GetColor(greenComponent, 255, 0);
+        } else {
+          // Yellow to red gradient (50% to 0%)
+          const redComponent = 255;
+          const greenComponent = Math.floor(255 * hpPercentage * 2);
+          fillColor = Phaser.Display.Color.GetColor(redComponent, greenComponent, 0);
+        }
+        
+        this.playerHPBar.fillStyle(fillColor, 1);
+        this.playerHPBar.fillRect(100, 420, 100 * hpPercentage, 10);
         this.playerHPText.setText(this.playerHP);
       }
-      
+
       updateOpponentHPBar() {
         const hpPercentage = this.opponentHP / 100;
         this.opponentHPBar.clear();
         this.opponentHPBar.lineStyle(2, 0xffffff, 1);
-        this.opponentHPBar.strokeRect(650, 420, 100, 10);
-        this.opponentHPBar.fillStyle(0xff0000, 1);
-        this.opponentHPBar.fillRect(650, 420, 100 * hpPercentage, 10);
+        this.opponentHPBar.strokeRect(800, 420, 100, 10);
+        
+        // Color gradient based on HP percentage
+        let fillColor;
+        if (hpPercentage > 0.5) {
+          // Green to yellow gradient (100% to 50%)
+          const greenComponent = Math.floor(255 * (hpPercentage - 0.5) * 2);
+          fillColor = Phaser.Display.Color.GetColor(greenComponent, 255, 0);
+        } else {
+          // Yellow to red gradient (50% to 0%)
+          const redComponent = 255;
+          const greenComponent = Math.floor(255 * hpPercentage * 2);
+          fillColor = Phaser.Display.Color.GetColor(redComponent, greenComponent, 0);
+        }
+        
+        this.opponentHPBar.fillStyle(fillColor, 1);
+        this.opponentHPBar.fillRect(800, 420, 100 * hpPercentage, 10);
         this.opponentHPText.setText(this.opponentHP);
+      }
+
+      endGame() {
+        this.gameEnded = true;
+
+        // Disable input
+        this.input.keyboard.removeAllListeners();
+        
+        // Show winner message
+        if (this.playerHP <= 0) {
+          this.resultText.setText('You Lost!');
+        } else {
+          this.resultText.setText('You Won!');
+        }
+        this.resultText.setVisible(true);
+        
+        // Notify server about game end
+        socket.emit('gameEnded', { winner: this.playerHP > 0 ? socket.id : null });
       }
     }
 
+    // Phaser game configuration
     const config = {
       type: Phaser.AUTO,
-      width: 800,
+      width: 1000, // Increased from 800 to 1000
       height: 600,
       scene: [MenuScene, WaitingScene, GameScene]
     };
@@ -193,10 +293,16 @@
 
     // Global listener for startGame
     socket.on('startGame', (data) => {
-        console.log(data.message); 
-        game.scene.start('GameScene');
+      console.log('Received startGame:', data.message);
+      // Check if WaitingScene is active before stopping it
+      if (game.scene.isActive('WaitingScene')) {
+        console.log('Stopping WaitingScene');
+        game.scene.stop('WaitingScene');
+      }
+      // Ensure GameScene starts cleanly
+      console.log('Starting GameScene');
+      game.scene.start('GameScene');
     });
-
   </script>
 </body>
 </html>
