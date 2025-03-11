@@ -20,11 +20,31 @@ function loadDictionary() {
     const data = fs.readFileSync(dictionaryPath, 'utf8');
     russianNouns = new Set(data.split('\n').map(word => word.trim().toLowerCase()));
     console.log(`Loaded ${russianNouns.size} Russian nouns`);
+    
+    // Prepare top 50 longest words for random selection
+    prepareWordList();
   } catch (err) {
     console.error('Error loading dictionary:', err);
     // Create an empty set if file doesn't exist yet
     russianNouns = new Set();
   }
+}
+
+// Top words for random selection
+let topLongestWords = [];
+
+// Prepare list of longest words for random selection
+function prepareWordList() {
+  const wordsArray = Array.from(russianNouns);
+  wordsArray.sort((a, b) => b.length - a.length);
+  topLongestWords = wordsArray.slice(0, 300);
+  console.log(`Prepared ${topLongestWords.length} longest words for random selection`);
+}
+
+// Get random word from top longest words
+function getRandomWord() {  
+  const randomIndex = Math.floor(Math.random() * topLongestWords.length);
+  return topLongestWords[randomIndex];
 }
 
 // Load dictionary on server start
@@ -63,9 +83,10 @@ io.on('connection', (socket) => {
       rooms[roomId] = { 
         players: [], 
         hp: {}, 
-        givenWord: 'многоножка',
-        usedWords: {} // Track used words per player instead of for the whole room
+        givenWord: getRandomWord(), // Use random word from top longest
+        usedWords: {} // Track used words per player
       };
+      console.log(`Created room ${roomId} with word: ${rooms[roomId].givenWord}`);
     }
     // Add player to room if there's space
     if (rooms[roomId].players.length < 2) {
@@ -81,8 +102,15 @@ io.on('connection', (socket) => {
 
       // Start game when two players are in the room
       if (rooms[roomId].players.length === 2) {
-        console.log('emitted start -> '+roomId);
-        io.to(roomId).emit('startGame', { message: 'Game starting!' });
+        console.log(`Starting game in room ${roomId} with word: ${rooms[roomId].givenWord}`);
+
+        // First send the given word to both players
+        io.to(roomId).emit('gameData', { givenWord: rooms[roomId].givenWord });
+
+        // Then start the game after a short delay to ensure word is received
+        setTimeout(() => {
+          io.to(roomId).emit('startGame', { message: 'Game starting!' });
+        }, 500);
       }
     } else {
       socket.emit('roomFull', { message: 'Room is full' });
