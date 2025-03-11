@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multiplayer Game</title>
+  <style>
+    #roomId, #joinButton {
+      display: none;
+    }
+  </style>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+</head>
+<body>
+  <input type="text" id="roomId" placeholder="Enter room ID">
+  <button id="joinButton">Join Room</button>
+
+  <script>
+    function canFormWord(givenWord, submittedWord) {
+      const givenFreq = {};
+      for (let char of givenWord) {
+        givenFreq[char] = (givenFreq[char] || 0) + 1;
+      }
+      const submittedFreq = {};
+      for (let char of submittedWord) {
+        submittedFreq[char] = (submittedFreq[char] || 0) + 1;
+      }
+      for (let char in submittedFreq) {
+        if (!givenFreq[char] || submittedFreq[char] > givenFreq[char]) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    const socket = io();
+    socket.on('connect', () => {
+      console.log('Connected to server');
+    });
+
+    // Menu Scene: Room joining
+    class MenuScene extends Phaser.Scene {
+      constructor() {
+        super({ key: 'MenuScene' });
+      }
+
+      create() {
+        this.add.text(400, 200, 'Enter Room ID to Join', { fontSize: '32px', fill: '#fff' }).setOrigin(0.5);
+        const roomIdInput = document.getElementById('roomId');
+        const joinButton = document.getElementById('joinButton');
+        roomIdInput.style.display = 'block';
+        joinButton.style.display = 'block';
+
+        socket.on('roomFull', (data) => {
+          console.log(data.message);
+          this.add.text(400, 300, 'Room is Full', { fontSize: '24px', fill: '#ff0000' }).setOrigin(0.5);
+        });
+
+        socket.on('joinedRoom', (data) => {
+          console.log('Joined room:', data.roomId);
+          this.scene.start('WaitingScene');
+        });
+
+        joinButton.onclick = () => {
+            const roomId = roomIdInput.value;
+            if (roomId) socket.emit('joinRoom', roomId);
+        };
+      }
+    }
+
+    // Waiting Scene: Wait for another player
+    class WaitingScene extends Phaser.Scene {
+      constructor() {
+        super({ key: 'WaitingScene' });
+      }
+
+      create() {
+        document.getElementById('roomId').style.display = 'none';
+        document.getElementById('joinButton').style.display = 'none';
+        this.waitingText = this.add.text(400, 300, 'Waiting for another player...', { fontSize: '32px', fill: '#fff' }).setOrigin(0.5);
+      }
+    }
+
+    // Game Scene: Actual gameplay
+    class GameScene extends Phaser.Scene {
+      constructor() {
+        super({ key: 'GameScene' });
+      }
+
+      create() {
+        // Castles (center at y=500)
+        this.add.rectangle(100, 500, 100, 100, 0x00ff00); // Player's castle
+        this.add.rectangle(700, 500, 100, 100, 0xff0000); // Opponent's castle
+
+        // Castle labels (below castles)
+        this.add.text(100, 560, 'Your Castle', { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
+        this.add.text(700, 560, 'Opponent’s Castle', { fontSize: '18px', fill: '#fff' }).setOrigin(0.5);
+
+        // Player HP setup
+        this.playerHP = 100;
+        this.playerHPBar = this.add.graphics();
+        this.playerHPBar.lineStyle(2, 0xffffff, 1);
+        this.playerHPBar.strokeRect(50, 420, 100, 10);
+        this.playerHPBar.fillStyle(0x00ff00, 1);
+        this.playerHPBar.fillRect(50, 420, 100, 10);
+        this.playerHPText = this.add.text(100, 410, '100', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
+
+        // Opponent HP setup (already present, just ensuring clarity)
+        this.opponentHP = 100;
+        this.opponentHPBar = this.add.graphics();
+        this.opponentHPBar.lineStyle(2, 0xffffff, 1);
+        this.opponentHPBar.strokeRect(650, 420, 100, 10);
+        this.opponentHPBar.fillStyle(0xff0000, 1);
+        this.opponentHPBar.fillRect(650, 420, 100, 10);
+        this.opponentHPText = this.add.text(700, 410, '100', { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
+
+        // Word and input UI
+        this.wordText = this.add.text(400, 50, 'многоножка', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
+        this.inputText = this.add.text(400, 150, '', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
+        this.damageText = this.add.text(400, 100, '', { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
+
+        // HP tracking
+        this.opponentHP = 100;
+        this.playerInput = ''; // Initialize playerInput
+        this.updateOpponentHPBar();
+
+        // Keyboard input logic
+        this.input.keyboard.on('keydown', (event) => {
+            if (event.key === 'Enter') {
+                if (this.playerInput) {
+                  const givenWord = 'многоножка';
+                  if (canFormWord(givenWord, this.playerInput)) {
+                    const damage = this.playerInput.length;
+                    console.log(`Valid word: ${this.playerInput}, Damage: ${damage}`);
+                    this.opponentHP = Math.max(0, this.opponentHP - damage);
+                    this.updateOpponentHPBar();
+                    this.damageText.setText(`Нанесено урона: ${damage}`);
+                    socket.emit('dealDamage', { damage: damage }); // Send damage to server
+                  } else {
+                    console.log('Invalid word');
+                    this.damageText.setText('Недопустимое слово');
+                  }
+                  this.playerInput = '';
+                  this.inputText.setText('');
+                }
+          } else if (event.key === 'Backspace') {
+            this.playerInput = this.playerInput.slice(0, -1);
+            this.inputText.setText(this.playerInput);
+          } else if (event.key.length === 1) {
+            this.playerInput += event.key;
+            this.inputText.setText(this.playerInput);
+          }
+
+          // Listen for damage from opponent
+          socket.on('receiveDamage', (data) => {
+              this.playerHP = Math.max(0, this.playerHP - data.damage);
+              this.updatePlayerHPBar();
+          });
+        });
+      }
+
+      // Add this method to GameScene
+      updatePlayerHPBar() {
+        const hpPercentage = this.playerHP / 100;
+        this.playerHPBar.clear();
+        this.playerHPBar.lineStyle(2, 0xffffff, 1);
+        this.playerHPBar.strokeRect(50, 420, 100, 10);
+        this.playerHPBar.fillStyle(0x00ff00, 1);
+        this.playerHPBar.fillRect(50, 420, 100 * hpPercentage, 10);
+        this.playerHPText.setText(this.playerHP);
+      }
+      
+      updateOpponentHPBar() {
+        const hpPercentage = this.opponentHP / 100;
+        this.opponentHPBar.clear();
+        this.opponentHPBar.lineStyle(2, 0xffffff, 1);
+        this.opponentHPBar.strokeRect(650, 420, 100, 10);
+        this.opponentHPBar.fillStyle(0xff0000, 1);
+        this.opponentHPBar.fillRect(650, 420, 100 * hpPercentage, 10);
+        this.opponentHPText.setText(this.opponentHP);
+      }
+    }
+
+    const config = {
+      type: Phaser.AUTO,
+      width: 800,
+      height: 600,
+      scene: [MenuScene, WaitingScene, GameScene]
+    };
+
+    const game = new Phaser.Game(config);
+
+    // Global listener for startGame
+    socket.on('startGame', (data) => {
+        console.log(data.message); 
+        game.scene.start('GameScene');
+    });
+
+  </script>
+</body>
+</html>
