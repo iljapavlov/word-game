@@ -25,8 +25,6 @@ class GameScene extends Phaser.Scene {
       const height = this.cameras.main.height;
       const castleY = height * this.castleYFraction;
       const castleXOffset = width * this.castleXOffsetFraction;
-      const castleSize = this.castleSize;
-
       
       // Background
       this.background = this.add.image(0, 0, 'background')
@@ -40,22 +38,22 @@ class GameScene extends Phaser.Scene {
       this.gameEnded = false;
       this.multiplier = 1.0; // Reset multiplier on create
 
-      // CASTLES
+      // castles
       this.playerCastle = this.add.image(width / 2 - castleXOffset, castleY, 'castle_100')
-      .setOrigin(0.5).setDisplaySize(castleSize, castleSize).setDepth(1);
+      .setOrigin(0.5).setDisplaySize(this.castleSize, this.castleSize).setDepth(1);
       this.opponentCastle = this.add.image(width / 2 + castleXOffset, castleY, 'castle_100')
-        .setOrigin(0.5).setDisplaySize(castleSize, castleSize).setDepth(1);
+        .setOrigin(0.5).setDisplaySize(this.castleSize, this.castleSize).setDepth(1);
 
       // Castle labels
-      this.add.text(width / 2 - castleXOffset, castleY + castleSize * 0.6, 'Your Castle', 
+      this.add.text(width / 2 - castleXOffset, castleY + this.castleSize * 0.6, 'Your Castle', 
         { fontSize: Math.max(16, width * 0.018) + 'px', fill: '#fff' }).setOrigin(0.5).setDepth(2);
-      this.add.text(width / 2 + castleXOffset, castleY + castleSize * 0.6, 'Opponents Castle', 
+      this.add.text(width / 2 + castleXOffset, castleY + this.castleSize * 0.6, 'Opponents Castle', 
         { fontSize: Math.max(16, width * 0.018) + 'px', fill: '#fff' }).setOrigin(0.5).setDepth(2);
 
       // HP bar dimensions
       const barWidth = width * 0.15;
       const barHeight = 10;
-      const barY = castleY - castleSize * 0.4;
+      const barY = castleY - this.castleSize * 0.4;
       
       // Player HP bar
       this.playerHPBar = this.add.graphics().setDepth(2);
@@ -248,9 +246,8 @@ class GameScene extends Phaser.Scene {
       const height = this.cameras.main.height;
       const barWidth = width * 0.15;
       const barHeight = height * 0.02;
-      const castleSize = Math.min(width, height) * 0.15;
-      const castleY = height * 0.65;
-      const barY = castleY - castleSize * 0.4;
+      const castleY = height * this.castleYFraction;
+      const barY = castleY - this.castleSize * 0.4;
       
       const hpPercentage = this.playerHP / 100;
       this.playerHPBar.clear();
@@ -280,9 +277,8 @@ class GameScene extends Phaser.Scene {
       const height = this.cameras.main.height;
       const barWidth = width * 0.15;
       const barHeight = height * 0.02;
-      const castleSize = Math.min(width, height) * 0.15;
-      const castleY = height * 0.65;
-      const barY = castleY - castleSize * 0.4;
+      const castleY = height * this.castleYFraction;
+      const barY = castleY - this.castleSize * 0.4;
       
       const hpPercentage = this.opponentHP / 100;
       this.opponentHPBar.clear();
