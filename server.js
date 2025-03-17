@@ -21,7 +21,6 @@ function loadDictionary() {
     russianNouns = new Set(data.split('\n').map(word => word.trim().toLowerCase()));
     console.log(`Loaded ${russianNouns.size} Russian nouns`);
     
-    // Prepare top 50 longest words for random selection
     prepareWordList();
   } catch (err) {
     console.error('Error loading dictionary:', err);
@@ -73,160 +72,239 @@ function isValidRussianNoun(word) {
   return russianNouns.has(word.toLowerCase());
 }
 
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+const disconnectedPlayers = {}; // { socketId: { roomId, timestamp } }
 
-  // Handle player joining a room
+io.on('connection', (socket) => {
+  // Create a room
+  socket.on('createRoom', (data) => {
+    const roomId = Math.random().toString(36).substring(2, 8);
+    const roomName = data.name || `Room ${roomId}`;
+    const gameMode = data.settings.gameMode || 'multiplayer'; // Default to multiplayer
+    const settings = { maxPlayers: data.settings.maxPlayers || 2, gameMode };
+    rooms[roomId] = {
+      name: roomName,
+      settings,
+      player1: null,
+      player2: null,
+      hp: { player1: 100, player2: 100 },
+      givenWord: getRandomWord(),
+      usedWords: { player1: new Set(), player2: new Set() }
+    };
+    socket.emit('roomCreated', { roomId, roomName, gameMode });
+  });
+  
+  // Join a room
   socket.on('joinRoom', (roomId) => {
-    // Create room if it doesn't exist
-    if (!rooms[roomId]) {
-      rooms[roomId] = { 
-        players: [], 
-        hp: {}, 
-        givenWord: getRandomWord(), // Use random word from top longest
-        usedWords: {} // Track used words per player
-      };
-      console.log(`Created room ${roomId} with word: ${rooms[roomId].givenWord}`);
-    }
-    // Add player to room if there's space
-    if (rooms[roomId].players.length < 2) {
-      rooms[roomId].players.push(socket.id);
-      rooms[roomId].hp[socket.id] = 100;
-      // Initialize player's used words set
-      if (!rooms[roomId].usedWords[socket.id]) {
-        rooms[roomId].usedWords[socket.id] = new Set();
+    if (rooms[roomId]) {
+      if (!rooms[roomId].player1) {
+        rooms[roomId].player1 = socket.id;
+        socket.playerPosition = 'player1';
+      } else if (!rooms[roomId].player2) {
+        rooms[roomId].player2 = socket.id;
+        socket.playerPosition = 'player2';
+      } else {
+        socket.emit('roomFull', { message: 'Room is full' });
+        return;
       }
       socket.join(roomId);
       socket.roomId = roomId;
-      socket.emit('joinedRoom', { roomId: roomId });
-
-      // Start game when two players are in the room
-      if (rooms[roomId].players.length === 2) {
-        console.log(`Starting game in room ${roomId} with word: ${rooms[roomId].givenWord}`);
-
-        // First send the given word to both players
+      socket.emit('joinedRoom', { roomId, roomName: rooms[roomId].name });
+      if (rooms[roomId].player1 && rooms[roomId].player2) {
         io.to(roomId).emit('gameData', { givenWord: rooms[roomId].givenWord });
-
-        // Then start the game after a short delay to ensure word is received
-        setTimeout(() => {
-          io.to(roomId).emit('startGame', { message: 'Game starting!' });
-        }, 500);
+        setTimeout(() => io.to(roomId).emit('startGame', { message: 'Game starting!' }), 500);
       }
     } else {
-      socket.emit('roomFull', { message: 'Room is full' });
+      socket.emit('roomNotFound', { message: 'Room does not exist' });
     }
   });
 
-  // Handle word submission and damage dealing
-  socket.on('submitWord', (data) => {
-    const roomId = socket.roomId;
-    if (!roomId || !rooms[roomId]) return;
-    const word = data.word.toLowerCase(); // Normalize to lowercase
-    const givenWord = rooms[roomId].givenWord;
-    const multiplier = data.multiplier || 1; // Get current multiplier from client
-
-    // Check if word is too short (less than 3 letters)
-    if (word.length < 3) {
-      socket.emit('wordResult', { 
-        valid: false, 
-        word: word, 
-        reason: 'Word must be at least 3 letters long',
-        resetMultiplier: true
-      });
-      return;
-    }
-
-    // Check if word is the same as the given word
-    if (word === givenWord.toLowerCase()) {
-      socket.emit('wordResult', { 
-        valid: false, 
-        word: word, 
-        reason: 'Cannot use the original word',
-        resetMultiplier: true
-      });
-      return;
-    }
-
-    // Check if this player already used this word
-    if (rooms[roomId].usedWords[socket.id].has(word)) {
-      socket.emit('wordResult', { 
-        valid: false, 
-        word: word, 
-        reason: 'You already used this word',
-        resetMultiplier: true
-      });
-      return;
-    }
-
-    if (canFormWord(givenWord, word)) {
-      if (isValidRussianNoun(word)) {
-        // Add word to player's used words set
-        rooms[roomId].usedWords[socket.id].add(word);
-        
-        // Calculate damage based on word length and complexity
-        let damage = calculateDamage(givenWord, word);
-        
-        // Apply multiplier to damage
-        damage = Math.floor(damage * multiplier);
-        
-        const players = rooms[roomId].players;
-        const opponentId = players.find(id => id !== socket.id);
-        if (opponentId) {
-          // Apply damage to opponent's HP
-          rooms[roomId].hp[opponentId] = Math.max(0, rooms[roomId].hp[opponentId] - damage);
-
-          // Send updated HP to both players
-          const player1Id = players[0];
-          const player2Id = players[1];
-          const player1HP = rooms[roomId].hp[player1Id];
-          const player2HP = rooms[roomId].hp[player2Id];
-          io.to(player1Id).emit('updateHP', { yourHP: player1HP, opponentHP: player2HP });
-          io.to(player2Id).emit('updateHP', { yourHP: player2HP, opponentHP: player1HP });
-
-          // Check if game has ended
-          if (player1HP <= 0 || player2HP <= 0) {
-            io.to(roomId).emit('gameEnded', { 
-              winner: player1HP <= 0 ? player2Id : player1Id 
-            });
-          }
-        }
-
-        // Send feedback to player with increased multiplier
-        socket.emit('wordResult', { 
-          valid: true, 
-          word: word, 
-          damage: damage,
-          increaseMultiplier: true
-        });
-      } else {
-        socket.emit('wordResult', { 
-          valid: false, 
-          word: word, 
-          reason: 'Not a valid Russian noun',
-          resetMultiplier: true
-        });
-      }
-    } else {
-      socket.emit('wordResult', { 
-        valid: false, 
-        word: word, 
-        reason: 'Cannot be formed from given letters',
-        resetMultiplier: true
-      });
-    }
+  // Send room list
+  socket.on('getRoomList', () => {
+    const roomList = Object.entries(rooms).map(([id, room]) => {
+      // Count connected players by filtering non-null player slots
+      const connectedPlayers = [room.player1, room.player2].filter(player => player !== null).length;
+      return {
+        id,
+        name: room.name,
+        players: connectedPlayers,
+        maxPlayers: room.settings.maxPlayers,
+        status: connectedPlayers < room.settings.maxPlayers ? 'Open' : 'Full'
+      };
+    });
+    socket.emit('roomList', roomList);
   });
 
-  // Handle player disconnection
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
     const roomId = socket.roomId;
     if (roomId && rooms[roomId]) {
-      rooms[roomId].players = rooms[roomId].players.filter(id => id !== socket.id);
-      delete rooms[roomId].hp[socket.id];
-      if (rooms[roomId].players.length < 2) {
-        io.to(roomId).emit('playerDisconnected', { message: 'Opponent disconnected' });
+      if (rooms[roomId].player1 === socket.id) {
+        rooms[roomId].player1 = null;
+      } else if (rooms[roomId].player2 === socket.id) {
+        rooms[roomId].player2 = null;
+      }
+      // Store disconnected player info
+      disconnectedPlayers[socket.id] = { 
+        roomId, 
+        timestamp: Date.now(), 
+        position: socket.playerPosition 
+      };
+      setTimeout(() => {
+        if (disconnectedPlayers[socket.id]) {
+          delete disconnectedPlayers[socket.id];
+          if (rooms[roomId] && (!rooms[roomId].player1 || !rooms[roomId].player2)) {
+            io.to(roomId).emit('gameAbandoned', { message: 'Opponent did not reconnect in time.' });
+          }
+        }
+      }, 30000); // 30 seconds
+      if (!rooms[roomId].player1 || !rooms[roomId].player2) {
+        io.to(roomId).emit('playerDisconnected', { message: 'Opponent disconnected, waiting for reconnection...' });
       }
     }
+  });
+  
+  // Handle word submission and damage dealing
+  socket.on('submitWord', (data) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    const word = data.word.toLowerCase();
+    const givenWord = rooms[roomId].givenWord;
+    const multiplier = data.multiplier || 1;
+    const position = socket.playerPosition;
+  
+    if (word.length < 3) {
+      socket.emit('wordResult', { valid: false, word, reason: 'Word must be at least 3 letters long', resetMultiplier: true });
+      return;
+    }
+    if (word === givenWord.toLowerCase()) {
+      socket.emit('wordResult', { valid: false, word, reason: 'Cannot use the original word', resetMultiplier: true });
+      return;
+    }
+    if (rooms[roomId].usedWords[position].has(word)) {
+      socket.emit('wordResult', { valid: false, word, reason: 'You already used this word', resetMultiplier: true });
+      return;
+    }
+    if (canFormWord(givenWord, word)) {
+      if (isValidRussianNoun(word)) {
+        rooms[roomId].usedWords[position].add(word);
+        let damage = calculateDamage(givenWord, word);
+        damage = Math.floor(damage * multiplier);
+        const opponentPos = position === 'player1' ? 'player2' : 'player1';
+        rooms[roomId].hp[opponentPos] = Math.max(0, rooms[roomId].hp[opponentPos] - damage);
+  
+        const player1HP = rooms[roomId].hp.player1;
+        const player2HP = rooms[roomId].hp.player2;
+        io.to(rooms[roomId].player1).emit('updateHP', { yourHP: player1HP, opponentHP: player2HP });
+        io.to(rooms[roomId].player2).emit('updateHP', { yourHP: player2HP, opponentHP: player1HP });
+  
+        if (player1HP <= 0 || player2HP <= 0) {
+          io.to(roomId).emit('gameEnded', { winner: player1HP <= 0 ? rooms[roomId].player2 : rooms[roomId].player1 });
+        }
+        socket.emit('wordResult', { valid: true, word, damage, increaseMultiplier: true });
+      } else {
+        socket.emit('wordResult', { valid: false, word, reason: 'Not a valid Russian noun', resetMultiplier: true });
+      }
+    } else {
+      socket.emit('wordResult', { valid: false, word, reason: 'Cannot be formed from given letters', resetMultiplier: true });
+    }
+  });
+
+  socket.on('reconnectToRoom', (roomId) => {
+    const dp = Object.values(disconnectedPlayers).find(dp => dp.roomId === roomId && dp.position);
+    if (dp) {
+      rooms[roomId][dp.position] = socket.id;
+      socket.playerPosition = dp.position;
+      socket.join(roomId);
+      socket.roomId = roomId;
+      socket.emit('joinedRoom', { roomId: roomId });
+      delete disconnectedPlayers[socket.id];
+      if (rooms[roomId].player1 && rooms[roomId].player2) {
+        io.to(roomId).emit('playerReconnected', { message: 'Opponent has reconnected!' });
+        io.to(roomId).emit('resumeGame', { message: 'Game resuming!' });
+      }
+    } else {
+      socket.emit('reconnectFailed', { message: 'Invalid reconnection attempt.' });
+    }
+  });
+    
+  // Handle game stats request
+  socket.on('requestGameStats', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    
+    const room = rooms[roomId];
+    
+    // Check if both players are present
+    if (!room.player1 || !room.player2) return;
+    
+    const player1Id = room.player1;
+    const player2Id = room.player2;
+    
+    // Get words used by each player (use player1 and player2 as keys)
+    const player1Words = Array.from(room.usedWords.player1 || []);
+    const player2Words = Array.from(room.usedWords.player2 || []);
+    
+    // Find unique and common words
+    const player1UniqueWords = player1Words.filter(word => !room.usedWords.player2.has(word));
+    const player2UniqueWords = player2Words.filter(word => !room.usedWords.player1.has(word));
+    const commonWords = player1Words.filter(word => room.usedWords.player2.has(word));
+    
+    // Calculate damage for each word
+    const player1UniqueWithDamage = player1UniqueWords.map(word => ({
+      word,
+      damage: calculateDamage(room.givenWord, word)
+    })).sort((a, b) => b.damage - a.damage);
+    
+    const player2UniqueWithDamage = player2UniqueWords.map(word => ({
+      word,
+      damage: calculateDamage(room.givenWord, word)
+    })).sort((a, b) => b.damage - a.damage);
+    
+    const commonWordsWithDamage = commonWords.map(word => ({
+      word,
+      damage: calculateDamage(room.givenWord, word)
+    }));
+    
+    // Send stats to the requesting player
+    if (socket.id === player1Id) {
+      socket.emit('gameStats', {
+        yourUniqueWords: player1UniqueWithDamage,
+        opponentUniqueWords: player2UniqueWithDamage,
+        commonWords: commonWordsWithDamage
+      });
+    } else {
+      socket.emit('gameStats', {
+        yourUniqueWords: player2UniqueWithDamage,
+        opponentUniqueWords: player1UniqueWithDamage,
+        commonWords: commonWordsWithDamage
+      });
+    }
+  });
+  
+  // Handle game restart request
+  socket.on('restartGame', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    
+    // Reset room data
+    rooms[roomId].givenWord = getRandomWord();
+    rooms[roomId].hp = { player1: 100, player2: 100 };
+    rooms[roomId].usedWords = { player1: new Set(), player2: new Set() };
+  
+    
+    console.log(`Restarting game in room ${roomId} with word: ${rooms[roomId].givenWord}`);
+    
+    // Send new word to players
+    io.to(roomId).emit('gameData', { givenWord: rooms[roomId].givenWord });
+    
+    // Start game after a short delay
+    setTimeout(() => {
+        // Send new word to players with the restart event
+        io.to(roomId).emit('gameRestarted', { 
+            message: 'Game restarted!',
+            givenWord: rooms[roomId].givenWord 
+        });
+    }, 500);
   });
 });
 

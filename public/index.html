@@ -20,421 +20,23 @@
   </style>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+  <script src="js/MenuScene.js"></script>
+  <script src="js/WaitingScene.js"></script>
+  <script src="js/CountdownScene.js"></script>
+  <script src="js/GameScene.js"></script>
+  <script src="js/utils.js"></script>
 </head>
 <body>
   <div id="game-container"></div>
 
   <script>
     const socket = io();
-    socket.on('connect', () => {
-      console.log('Connected to server');
-    });
-
-    // Menu Scene: Room joining interface
-    class MenuScene extends Phaser.Scene {
-      constructor() {
-        super({ key: 'MenuScene' });
-      }
-
-      create() {
-        // Title
-        this.add.text(this.cameras.main.width / 2, 100, 'Word Battle', 
-          { fontSize: '64px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-        
-        // Create Room button
-        const createButton = this.add.rectangle(this.cameras.main.width / 2, 250, 300, 60, 0x00aa00);
-        const createText = this.add.text(this.cameras.main.width / 2, 250, 'Create New Room', 
-          { fontSize: '28px', fill: '#fff' }).setOrigin(0.5);
-        createButton.setInteractive();
-        
-        // Join Room button
-        const joinButton = this.add.rectangle(this.cameras.main.width / 2, 350, 300, 60, 0x0000aa);
-        const joinText = this.add.text(this.cameras.main.width / 2, 350, 'Join Room', 
-          { fontSize: '28px', fill: '#fff' }).setOrigin(0.5);
-        joinButton.setInteractive();
-        
-        // Room ID input (initially hidden)
-        this.roomIdInput = this.add.text(this.cameras.main.width / 2, 450, '', 
-          { fontSize: '32px', fill: '#fff', backgroundColor: '#333' }).setOrigin(0.5);
-        this.roomIdInput.setVisible(false);
-        
-        // Instructions text (initially hidden)
-        this.instructionsText = this.add.text(this.cameras.main.width / 2, 400, 'Enter Room ID:', 
-          { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
-        this.instructionsText.setVisible(false);
-        
-        // Submit button (initially hidden)
-        this.submitButton = this.add.rectangle(this.cameras.main.width / 2, 500, 200, 50, 0x00aa00);
-        this.submitButtonText = this.add.text(this.cameras.main.width / 2, 500, 'Submit', 
-          { fontSize: '24px', fill: '#fff' }).setOrigin(0.5);
-        this.submitButton.setVisible(false);
-        this.submitButtonText.setVisible(false);
-        this.submitButton.setInteractive();
-        
-        // Error message text
-        this.errorText = this.add.text(this.cameras.main.width / 2, 550, '', 
-          { fontSize: '24px', fill: '#ff0000' }).setOrigin(0.5);
-        
-        // Input mode flag
-        this.joiningRoom = false;
-        this.currentInput = '';
-        
-        // Button event handlers
-        createButton.on('pointerdown', () => {
-          // Generate random room ID
-          const roomId = Math.random().toString(36).substring(2, 8);
-          socket.emit('joinRoom', roomId);
-        });
-        
-        joinButton.on('pointerdown', () => {
-          // Show room ID input
-          this.joiningRoom = true;
-          this.roomIdInput.setVisible(true);
-          this.instructionsText.setVisible(true);
-          this.submitButton.setVisible(true);
-          this.submitButtonText.setVisible(true);
-        });
-        
-        this.submitButton.on('pointerdown', () => {
-          if (this.currentInput) {
-            socket.emit('joinRoom', this.currentInput);
-          } else {
-            this.errorText.setText('Please enter a room ID');
-          }
-        });
-        
-        // Keyboard input for room ID
-        this.input.keyboard.on('keydown', (event) => {
-          if (!this.joiningRoom) return;
-          
-          if (event.key === 'Enter') {
-            if (this.currentInput) {
-              socket.emit('joinRoom', this.currentInput);
-            } else {
-              this.errorText.setText('Please enter a room ID');
-            }
-          } else if (event.key === 'Backspace') {
-            this.currentInput = this.currentInput.slice(0, -1);
-            this.roomIdInput.setText(this.currentInput);
-          } else if (/^[a-zA-Z0-9]$/.test(event.key)) {
-            this.currentInput += event.key;
-            this.roomIdInput.setText(this.currentInput);
-          }
-        });
-        
-        // Socket event handlers
-        socket.on('roomFull', (data) => {
-          console.log(data.message);
-          this.errorText.setText('Room is full');
-        });
-
-        socket.on('joinedRoom', (data) => {
-          console.log('Joined room:', data.roomId);
-          this.scene.start('WaitingScene', { roomId: data.roomId });
-        });
-      }
-    }
-
-    // Waiting Scene: Wait for second player
-    class WaitingScene extends Phaser.Scene {
-      constructor() {
-        super({ key: 'WaitingScene' });
-      }
-
-      init(data) {
-        this.roomId = data.roomId;
-      }
-
-      create() {
-        this.waitingText = this.add.text(
-          this.cameras.main.width / 2, 
-          this.cameras.main.height / 2 - 50, 
-          'Waiting for another player...', 
-          { fontSize: '32px', fill: '#fff' }
-        ).setOrigin(0.5);
-        
-        // Display room ID for sharing
-        this.add.text(
-          this.cameras.main.width / 2,
-          this.cameras.main.height / 2 + 50,
-          `Room ID: ${this.roomId}`,
-          { fontSize: '24px', fill: '#fff' }
-        ).setOrigin(0.5);
-        
-        this.add.text(
-          this.cameras.main.width / 2,
-          this.cameras.main.height / 2 + 100,
-          'Share this ID with your friend',
-          { fontSize: '20px', fill: '#aaa' }
-        ).setOrigin(0.5);
-      }
-    }
-
-    // Game Scene: Main gameplay
-    class GameScene extends Phaser.Scene {
-      constructor() {
-        super({ key: 'GameScene' });
-        this.submittedWords = new Set(); // Track submitted words
-        this.multiplier = 1; // Initialize damage multiplier
-      }
-
-      create() {
-        // Get screen dimensions
-        const width = this.cameras.main.width;
-        const height = this.cameras.main.height;
-        
-        // Initialize HP
-        this.playerHP = 100;
-        this.opponentHP = 100;
-        this.gameEnded = false;
-
-        // Draw castles - position based on screen size
-        const castleSize = Math.min(width, height) * 0.15;
-        const castleY = height * 0.8;
-        
-        this.add.rectangle(width * 0.15, castleY, castleSize, castleSize, 0x00ff00); // Player's castle
-        this.add.rectangle(width * 0.85, castleY, castleSize, castleSize, 0xff0000); // Opponent's castle
-
-        // Castle labels
-        this.add.text(width * 0.15, castleY + castleSize * 0.6, 'Your Castle', 
-          { fontSize: Math.max(16, width * 0.018) + 'px', fill: '#fff' }).setOrigin(0.5);
-        this.add.text(width * 0.85, castleY + castleSize * 0.6, 'Opponents Castle', 
-          { fontSize: Math.max(16, width * 0.018) + 'px', fill: '#fff' }).setOrigin(0.5);
-
-        // HP bar dimensions
-        const barWidth = width * 0.15;
-        const barHeight = height * 0.02;
-        const barY = castleY - castleSize * 0.6;
-        
-        // Player HP bar and text
-        this.playerHPBar = this.add.graphics();
-        this.playerHPBar.lineStyle(2, 0xffffff, 1);
-        this.playerHPBar.strokeRect(width * 0.075, barY, barWidth, barHeight);
-        this.playerHPBar.fillStyle(0x00ff00, 1);
-        this.playerHPBar.fillRect(width * 0.075, barY, barWidth, barHeight);
-        this.playerHPText = this.add.text(width * 0.15, barY - barHeight, '100', 
-          { fontSize: Math.max(16, width * 0.016) + 'px', fill: '#fff' }).setOrigin(0.5);
-
-        // Opponent HP bar and text
-        this.opponentHPBar = this.add.graphics();
-        this.opponentHPBar.lineStyle(2, 0xffffff, 1);
-        this.opponentHPBar.strokeRect(width * 0.775, barY, barWidth, barHeight);
-        this.opponentHPBar.fillStyle(0xff0000, 1);
-        this.opponentHPBar.fillRect(width * 0.775, barY, barWidth, barHeight);
-        this.opponentHPText = this.add.text(width * 0.85, barY - barHeight, '100', 
-          { fontSize: Math.max(16, width * 0.016) + 'px', fill: '#fff' }).setOrigin(0.5);
-
-        // Word and input UI - make the word text bigger
-        this.inputText = this.add.text(width * 0.5, height * 0.25, '', 
-          { fontSize: Math.max(24, width * 0.028) + 'px', fill: '#fff' }).setOrigin(0.5);
-        this.damageText = this.add.text(width * 0.5, height * 0.18, '', 
-          { fontSize: Math.max(20, width * 0.024) + 'px', fill: '#fff' }).setOrigin(0.5);
-        
-        // Multiplier display
-        this.multiplierText = this.add.text(width * 0.5, height * 0.32, 'Multiplier: x1.0', 
-          { fontSize: Math.max(18, width * 0.02) + 'px', fill: '#fff' }).setOrigin(0.5);
-        
-        // Game results
-        this.resultText = this.add.text(width * 0.5, height * 0.5, '', 
-          { fontSize: Math.max(40, width * 0.05) + 'px', fill: '#fff', fontStyle: 'bold' }).setOrigin(0.5);
-        this.resultText.setVisible(false);
-
-        this.playerInput = ''; // Initialize player input
-        this.givenWord = ''; // Will be set when received from server
-        
-        // Word and input UI - make the word text bigger
-        this.wordText = this.add.text(width * 0.5, height * 0.1, 'Waiting for word...', 
-          { fontSize: Math.max(40, width * 0.05) + 'px', fill: '#fff' }).setOrigin(0.5);
-        
-        // Check if we already have the word from the global variable
-        if (window.givenWord) {
-          this.givenWord = window.givenWord;
-          this.wordText.setText(this.givenWord);
-          console.log('Using stored word:', this.givenWord);
-        } else {
-          this.givenWord = ''; // Will be set when received from server
-        }
-
-        // Listen for game data
-        socket.on('gameData', (data) => {
-          console.log('GameScene received game data with word:', data.givenWord);
-          this.givenWord = data.givenWord;
-          this.wordText.setText(this.givenWord);
-        });
-
-        // Update HP bars based on server data
-        socket.on('updateHP', (data) => {
-          this.playerHP = data.yourHP;
-          this.opponentHP = data.opponentHP;
-          this.updatePlayerHPBar();
-          this.updateOpponentHPBar();
-
-          // Check for game end
-          if (!this.gameEnded && (this.playerHP <=0 || this.opponentHP <=0)) {
-            this.endGame();
-          }
-        });
-        
-        // Handle word validation result
-        socket.on('wordResult', (result) => {
-          if (result.valid) {
-            this.damageText.setText(`Нанесено урона: ${result.damage}`);
-            this.damageText.setColor('#00ff00');
-            
-            // Increase multiplier on successful word
-            if (result.increaseMultiplier) {
-              this.multiplier += 0.2;
-              this.updateMultiplierDisplay();
-            }
-          } else {
-            this.damageText.setText(`Недопустимое слово: ${result.reason}`);
-            this.damageText.setColor('#ff0000');
-            
-            // Reset multiplier on failed word
-            if (result.resetMultiplier) {
-              this.multiplier = 1.0;
-              this.updateMultiplierDisplay();
-            }
-          }
-        });
-
-        // Handle keyboard input
-        this.input.keyboard.on('keydown', (event) => {
-          if (event.key === 'Enter') {
-            if (this.playerInput) {
-              // Check if word is too short
-              if (this.playerInput.length < 3) {
-                this.damageText.setText('Слово должно быть не менее 3 букв');
-                this.damageText.setColor('#ff0000');
-                this.multiplier = 1.0;
-                this.updateMultiplierDisplay();
-              }
-              // Check if word is the same as given word
-              else if (this.playerInput.toLowerCase() === this.givenWord.toLowerCase()) {
-                this.damageText.setText('Нельзя использовать исходное слово');
-                this.damageText.setColor('#ff0000');
-                this.multiplier = 1.0;
-                this.updateMultiplierDisplay();
-              } 
-              // Check if word was already submitted by this player
-              else if (this.submittedWords.has(this.playerInput.toLowerCase())) {
-                this.damageText.setText('Это слово уже использовано');
-                this.damageText.setColor('#ff0000');
-                this.multiplier = 1.0;
-                this.updateMultiplierDisplay();
-              }
-              else {
-                socket.emit('submitWord', { 
-                  word: this.playerInput,
-                  multiplier: this.multiplier
-                });
-                this.submittedWords.add(this.playerInput.toLowerCase()); // Add to submitted words
-              }
-              this.playerInput = '';
-              this.inputText.setText('');
-            }
-          } else if (event.key === 'Backspace') {
-            this.playerInput = this.playerInput.slice(0, -1);
-            this.inputText.setText(this.playerInput);
-          } else if (event.key.length === 1) {
-            this.playerInput += event.key;
-            this.inputText.setText(this.playerInput);
-          }
-        });
-      }
-
-      updateMultiplierDisplay() {
-        // Format multiplier to one decimal place
-        const formattedMultiplier = this.multiplier.toFixed(1);
-        this.multiplierText.setText(`Multiplier: x${formattedMultiplier}`);
-        
-        // Change color based on multiplier value
-        if (this.multiplier > 2.0) {
-          this.multiplierText.setColor('#ff9900'); // Orange for high multiplier
-        } else if (this.multiplier > 1.0) {
-          this.multiplierText.setColor('#00ff00'); // Green for increased multiplier
-        } else {
-          this.multiplierText.setColor('#ffffff'); // White for base multiplier
-        }
-      }
-
-      updatePlayerHPBar() {
-        const width = this.cameras.main.width;
-        const height = this.cameras.main.height;
-        const barWidth = width * 0.15;
-        const barHeight = height * 0.02;
-        const barY = height * 0.8 - height * 0.15 * 0.6;
-        
-        const hpPercentage = this.playerHP / 100;
-        this.playerHPBar.clear();
-        this.playerHPBar.lineStyle(2, 0xffffff, 1);
-        this.playerHPBar.strokeRect(width * 0.075, barY, barWidth, barHeight);
-        
-        // Color gradient based on HP percentage
-        let fillColor;
-        if (hpPercentage > 0.5) {
-          // Green to yellow gradient (100% to 50%)
-          const greenComponent = Math.floor(255 * (hpPercentage - 0.5) * 2);
-          fillColor = Phaser.Display.Color.GetColor(greenComponent, 255, 0);
-        } else {
-          // Yellow to red gradient (50% to 0%)
-          const redComponent = 255;
-          const greenComponent = Math.floor(255 * hpPercentage * 2);
-          fillColor = Phaser.Display.Color.GetColor(redComponent, greenComponent, 0);
-        }
-        
-        this.playerHPBar.fillStyle(fillColor, 1);
-        this.playerHPBar.fillRect(width * 0.075, barY, barWidth * hpPercentage, barHeight);
-        this.playerHPText.setText(this.playerHP);
-      }
-
-      updateOpponentHPBar() {
-        const width = this.cameras.main.width;
-        const height = this.cameras.main.height;
-        const barWidth = width * 0.15;
-        const barHeight = height * 0.02;
-        const barY = height * 0.8 - height * 0.15 * 0.6;
-        
-        const hpPercentage = this.opponentHP / 100;
-        this.opponentHPBar.clear();
-        this.opponentHPBar.lineStyle(2, 0xffffff, 1);
-        this.opponentHPBar.strokeRect(width * 0.775, barY, barWidth, barHeight);
-        
-        // Color gradient based on HP percentage
-        let fillColor;
-        if (hpPercentage > 0.5) {
-          // Green to yellow gradient (100% to 50%)
-          const greenComponent = Math.floor(255 * (hpPercentage - 0.5) * 2);
-          fillColor = Phaser.Display.Color.GetColor(greenComponent, 255, 0);
-        } else {
-          // Yellow to red gradient (50% to 0%)
-          const redComponent = 255;
-          const greenComponent = Math.floor(255 * hpPercentage * 2);
-          fillColor = Phaser.Display.Color.GetColor(redComponent, greenComponent, 0);
-        }
-        
-        this.opponentHPBar.fillStyle(fillColor, 1);
-        this.opponentHPBar.fillRect(width * 0.775, barY, barWidth * hpPercentage, barHeight);
-        this.opponentHPText.setText(this.opponentHP);
-      }
-
-      endGame() {
-        this.gameEnded = true;
-
-        // Disable input
-        this.input.keyboard.removeAllListeners();
-        
-        // Show winner message
-        if (this.playerHP <= 0) {
-          this.resultText.setText('You Lost!');
-        } else {
-          this.resultText.setText('You Won!');
-        }
-        this.resultText.setVisible(true);
-        
-        // Notify server about game end
-        socket.emit('gameEnded', { winner: this.playerHP > 0 ? socket.id : null });
-      }
+    window.socket = socket;
+    
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomIdFromUrl = urlParams.get('room');
+    if (roomIdFromUrl) {
+      window.socket.emit('joinRoom', roomIdFromUrl);
     }
 
     // Phaser game configuration
@@ -442,7 +44,7 @@
       type: Phaser.AUTO,
       width: window.innerWidth,
       height: window.innerHeight,
-      scene: [MenuScene, WaitingScene, GameScene],
+      scene: [MenuScene, WaitingScene, CountdownScene, GameScene],
       scale: {
         mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH
@@ -450,30 +52,46 @@
     };
 
     const game = new Phaser.Game(config);
-
-    // Handle window resize
     window.addEventListener('resize', function() {
       game.scale.resize(window.innerWidth, window.innerHeight);
     });
 
-    // Global listener for startGame
-    socket.on('startGame', (data) => {
+    // Socket listeners
+    window.socket.on('joinedRoom', (data) => {
+      history.pushState({}, '', `?room=${data.roomId}`);
+    });
+
+    window.socket.on('connect', () => {
+      console.log('Connected to server');
+      const lastRoomId = localStorage.getItem('lastRoomId');
+      if (lastRoomId) {
+        socket.emit('reconnectToRoom', lastRoomId);
+      }
+    });
+
+    window.socket.on('gameData', (data) => {
+      console.log('Received game data with word:', data.givenWord);
+      window.givenWord = data.givenWord;
+    });
+
+    window.socket.on('startGame', (data) => {
       console.log('Received startGame:', data.message);
-      // Check if WaitingScene is active before stopping it
       if (game.scene.isActive('WaitingScene')) {
         console.log('Stopping WaitingScene');
         game.scene.stop('WaitingScene');
       }
-      // Ensure GameScene starts cleanly
-      console.log('Starting GameScene');
-      game.scene.start('GameScene');
+      console.log('Starting CountdownScene');
+      game.scene.start('CountdownScene');
     });
 
-    // Move gameData event listener here to ensure it's available globally
-    socket.on('gameData', (data) => {
-      console.log('Received game data with word:', data.givenWord);
-      // Store the word in a global variable so it can be accessed when GameScene starts
+    window.socket.on('gameRestarted', (data) => {
+      console.log('Game restarted:', data.message);
       window.givenWord = data.givenWord;
+      
+      if (game.scene.isActive('GameScene')) {
+        game.scene.stop('GameScene');
+      }
+      game.scene.start('CountdownScene');
     });
   </script>
 </body>
