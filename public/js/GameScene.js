@@ -152,7 +152,7 @@ initLayoutValues() {
       // Main word text (make it bold)
       this.wordText = this.add.text(
           this.screenWidth * 0.5, 
-          this.screenHeight * 0.1, 
+          this.screenHeight * 0.15, 
           'Waiting for word...', 
           { fontSize: '50px', fill: '#fff', fontStyle: 'bold' }
       ).setOrigin(0.5).setDepth(3);
@@ -160,7 +160,7 @@ initLayoutValues() {
       // Input text display
       this.inputText = this.add.text(
           this.screenWidth * 0.5, 
-          this.screenHeight * 0.25, 
+          this.screenHeight * 0.3, 
           '', 
           { fontSize: '32px', fill: '#fff' }
       ).setOrigin(0.5).setDepth(3);
@@ -196,7 +196,7 @@ initLayoutValues() {
       // Check if we already have the word from the global variable
       if (window.givenWord) {
           this.givenWord = window.givenWord;
-          this.wordText.setText(this.givenWord);
+          this.wordText.setText(this.givenWord.toUpperCase());
           console.log('Using stored word:', this.givenWord);
       }
   }
@@ -460,27 +460,28 @@ initLayoutValues() {
   handleKeyDown(event) {
       if (event.key === 'Enter') {
           if (this.playerInput) {
-              if (this.playerInput.length < 3) {
+              const submittedWord = this.playerInput.trim().toLowerCase();
+              if (submittedWord.length < 3) {
                   this.damageText.setText('Слово должно быть не менее 3 букв');
                   this.damageText.setColor('#ff0000');
                   this.multiplier = 1.0;
                   this.updateMultiplierDisplay();
-              } else if (this.playerInput.toLowerCase() === this.givenWord.toLowerCase()) {
+              } else if (submittedWord === givenWord.toLowerCase()) {
                   this.damageText.setText('Нельзя использовать исходное слово');
                   this.damageText.setColor('#ff0000');
                   this.multiplier = 1.0;
                   this.updateMultiplierDisplay();
-              } else if (this.submittedWords.has(this.playerInput.toLowerCase())) {
+              } else if (this.submittedWords.has(submittedWord.toLowerCase())) {
                   this.damageText.setText('Это слово уже использовано');
                   this.damageText.setColor('#ff0000');
                   this.multiplier = 1.0;
                   this.updateMultiplierDisplay();
               } else {
                   window.socket.emit('submitWord', { 
-                      word: this.playerInput,
+                      word: submittedWord,
                       multiplier: this.multiplier
                   });
-                  this.submittedWords.add(this.playerInput.toLowerCase());
+                  this.submittedWords.add(submittedWord);
               }
               this.playerInput = '';
               this.inputText.setText('');
@@ -501,7 +502,12 @@ initLayoutValues() {
     const actualTargetX = this.screenWidth / 2 - this.castleXOffset;
     
     // Create fireball as a red circle
-    const fireball = this.add.circle(actualStartX, startY, 15, 0xff0000);
+    const damageRatio = Math.min(1, Math.abs(damage - 20) / 20); // 0 if damage is 20, 1 if far away
+    const red = Math.floor(255 * damageRatio);
+    const blue = Math.floor(255 * (1 - damageRatio));
+    const color = Phaser.Display.Color.GetColor(red, 0, blue);
+    const fireball = this.add.circle(startX, startY, 15, color);
+
     this.physics.add.existing(fireball);
     fireball.setDepth(5);
     
@@ -585,7 +591,12 @@ initLayoutValues() {
     const startY = this.castleY - this.castleSize * 0.2;
     
     // Create fireball as a red circle
-    const fireball = this.add.circle(startX, startY, 15, 0xff0000);
+    const damageRatio = Math.min(1, Math.abs(damage - 20) / 20); // 0 if damage is 20, 1 if far away
+    const red = Math.floor(255 * damageRatio);
+    const blue = Math.floor(255 * (1 - damageRatio));
+    const color = Phaser.Display.Color.GetColor(red, 0, blue);
+    const fireball = this.add.circle(startX, startY, 15, color);
+
     this.physics.add.existing(fireball); // Add physics to the circle
     fireball.setDepth(5);
     
@@ -665,7 +676,12 @@ initLayoutValues() {
 
 addTrailParticle(fireball) {
     // Create a smaller circle for the trail
-    const trailParticle = this.add.circle(fireball.x, fireball.y, 10, 0xff3300, 0.7);
+    const damageRatio = Math.min(1, Math.abs(fireball.damage - 20) / 20); // Same ratio as fireball
+    const red = Math.floor(255 * damageRatio);
+    const blue = Math.floor(255 * (1 - damageRatio));
+    const color = Phaser.Display.Color.GetColor(red * 0.6, 0, blue * 0.6); // Use darker shades for trail
+    const trailParticle = this.add.circle(fireball.x, fireball.y, 10, color, 0.7);
+
     trailParticle.setDepth(3);
     
     // Add to trail array
@@ -697,7 +713,7 @@ addTrailParticle(fireball) {
 fireballHit(fireball) {
   // Show damage number at hit location
   const damageText = this.add.text(fireball.x, fireball.y, '-' + fireball.damage, 
-      { fontSize: '32px', fontStyle: 'bold', fill: '#ff0000' }).setOrigin(0.5).setDepth(6);
+      { fontSize: '48px', fontStyle: 'bold', fill: '#ff0000' }).setOrigin(0.5).setDepth(6);
   
   // Add screen shake effect based on damage
   this.cameras.main.shake(200, 0.005 * fireball.damage);
