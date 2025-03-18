@@ -11,11 +11,11 @@
       height: 100%;
       width: 100%;
       overflow: hidden;
+      background-color: #000; /* Optional: dark background color */
     }
     #game-container {
       height: 100%;
       width: 100%;
-      display: none;
     }
   </style>
   <script src="/socket.io/socket.io.js"></script>
@@ -42,13 +42,21 @@
     // Phaser game configuration
     const config = {
       type: Phaser.AUTO,
-      width: window.innerWidth,
-      height: window.innerHeight,
-      scene: [MenuScene, WaitingScene, CountdownScene, GameScene],
       scale: {
-        mode: Phaser.Scale.RESIZE,
-        autoCenter: Phaser.Scale.CENTER_BOTH
-      }
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        width: 800,
+        height: 800,
+        parent: 'game-container'
+      },
+      scene: [MenuScene, WaitingScene, CountdownScene, GameScene],
+      physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 0 },
+            debug: false
+        }
+    }
     };
 
     const game = new Phaser.Game(config);

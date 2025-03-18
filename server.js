@@ -189,23 +189,70 @@ io.on('connection', (socket) => {
         rooms[roomId].usedWords[position].add(word);
         let damage = calculateDamage(givenWord, word);
         damage = Math.floor(damage * multiplier);
-        const opponentPos = position === 'player1' ? 'player2' : 'player1';
-        rooms[roomId].hp[opponentPos] = Math.max(0, rooms[roomId].hp[opponentPos] - damage);
-  
-        const player1HP = rooms[roomId].hp.player1;
-        const player2HP = rooms[roomId].hp.player2;
-        io.to(rooms[roomId].player1).emit('updateHP', { yourHP: player1HP, opponentHP: player2HP });
-        io.to(rooms[roomId].player2).emit('updateHP', { yourHP: player2HP, opponentHP: player1HP });
-  
-        if (player1HP <= 0 || player2HP <= 0) {
-          io.to(roomId).emit('gameEnded', { winner: player1HP <= 0 ? rooms[roomId].player2 : rooms[roomId].player1 });
-        }
+        
+        // Send word result to player but don't update HP yet
         socket.emit('wordResult', { valid: true, word, damage, increaseMultiplier: true });
+        
+        // Store pending damage in temporary variable
+        if (!rooms[roomId].pendingDamage) {
+            rooms[roomId].pendingDamage = {};
+        }
+        rooms[roomId].pendingDamage[socket.id] = {
+            damage: damage,
+            opponentPos: position === 'player1' ? 'player2' : 'player1'
+        };
       } else {
         socket.emit('wordResult', { valid: false, word, reason: 'Not a valid Russian noun', resetMultiplier: true });
       }
     } else {
       socket.emit('wordResult', { valid: false, word, reason: 'Cannot be formed from given letters', resetMultiplier: true });
+    }
+  });
+
+  // Add new handler for hit confirmation
+  socket.on('fireballHit', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId] || !rooms[roomId].pendingDamage || !rooms[roomId].pendingDamage[socket.id]) return;
+    
+    // Apply the pending damage
+    const pendingInfo = rooms[roomId].pendingDamage[socket.id];
+    const opponentPos = pendingInfo.opponentPos;
+    const damage = pendingInfo.damage;
+    
+    // Now apply the damage
+    rooms[roomId].hp[opponentPos] = Math.max(0, rooms[roomId].hp[opponentPos] - damage);
+    
+    // Clean up the pending damage
+    delete rooms[roomId].pendingDamage[socket.id];
+    
+    // Send updated HP to both players
+    const player1HP = rooms[roomId].hp.player1;
+    const player2HP = rooms[roomId].hp.player2;
+    io.to(rooms[roomId].player1).emit('updateHP', { yourHP: player1HP, opponentHP: player2HP });
+    io.to(rooms[roomId].player2).emit('updateHP', { yourHP: player2HP, opponentHP: player1HP });
+    
+    // Check if game is over
+    if (player1HP <= 0 || player2HP <= 0) {
+        io.to(roomId).emit('gameEnded', { winner: player1HP <= 0 ? rooms[roomId].player2 : rooms[roomId].player1 });
+    }
+  });
+
+  // Add to socket events in server.js
+  socket.on('fireballLaunched', (data) => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    
+    // Get opponent socket id
+    let opponentId;
+    if (rooms[roomId].player1 === socket.id) {
+        opponentId = rooms[roomId].player2;
+    } else {
+        opponentId = rooms[roomId].player1;
+    }
+    
+    // Send fireball data to opponent only
+    if (opponentId) {
+        io.to(opponentId).emit('opponentFireball', data);
     }
   });
 
@@ -280,6 +327,17 @@ io.on('connection', (socket) => {
       });
     }
   });
+
+  socket.on('requestGameState', () => {
+    const roomId = socket.roomId;
+    if (!roomId || !rooms[roomId]) return;
+    
+    const room = rooms[roomId];
+    socket.emit('gameState', {
+        givenWord: room.givenWord,
+        hp: room.hp
+    });
+});
   
   // Handle game restart request
   socket.on('restartGame', () => {
@@ -290,21 +348,14 @@ io.on('connection', (socket) => {
     rooms[roomId].givenWord = getRandomWord();
     rooms[roomId].hp = { player1: 100, player2: 100 };
     rooms[roomId].usedWords = { player1: new Set(), player2: new Set() };
-  
     
     console.log(`Restarting game in room ${roomId} with word: ${rooms[roomId].givenWord}`);
     
-    // Send new word to players
-    io.to(roomId).emit('gameData', { givenWord: rooms[roomId].givenWord });
-    
-    // Start game after a short delay
-    setTimeout(() => {
-        // Send new word to players with the restart event
-        io.to(roomId).emit('gameRestarted', { 
-            message: 'Game restarted!',
-            givenWord: rooms[roomId].givenWord 
-        });
-    }, 500);
+    // Immediately send restart event with the new word
+    io.to(roomId).emit('gameRestarted', { 
+        message: 'Game restarted!',
+        givenWord: rooms[roomId].givenWord 
+    });
   });
 });
 
