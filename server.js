@@ -190,16 +190,16 @@ io.on('connection', (socket) => {
         let damage = calculateDamage(givenWord, word);
         damage = Math.floor(damage * multiplier);
         
-        // Send word result to player but don't update HP yet
+        // Send word result to player
         socket.emit('wordResult', { valid: true, word, damage, increaseMultiplier: true });
         
         // Store pending damage in temporary variable
         if (!rooms[roomId].pendingDamage) {
-            rooms[roomId].pendingDamage = {};
+          rooms[roomId].pendingDamage = {};
         }
         rooms[roomId].pendingDamage[socket.id] = {
-            damage: damage,
-            opponentPos: position === 'player1' ? 'player2' : 'player1'
+          damage: damage,
+          opponentPos: position === 'player1' ? 'player2' : 'player1'
         };
       } else {
         socket.emit('wordResult', { valid: false, word, reason: 'Not a valid Russian noun', resetMultiplier: true });
@@ -238,21 +238,24 @@ io.on('connection', (socket) => {
   });
 
   // Add to socket events in server.js
-  socket.on('fireballLaunched', (data) => {
+  socket.on('wordSuccess', (data) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms[roomId]) return;
     
     // Get opponent socket id
     let opponentId;
     if (rooms[roomId].player1 === socket.id) {
-        opponentId = rooms[roomId].player2;
+      opponentId = rooms[roomId].player2;
     } else {
-        opponentId = rooms[roomId].player1;
+      opponentId = rooms[roomId].player1;
     }
     
-    // Send fireball data to opponent only
+    // Send fireball data to opponent
     if (opponentId) {
-        io.to(opponentId).emit('opponentFireball', data);
+      io.to(opponentId).emit('opponentWordSuccess', {
+        damage: data.damage,
+        // No need to send positions as they'll be calculated on the opponent's side
+      });
     }
   });
 
@@ -359,40 +362,137 @@ io.on('connection', (socket) => {
   });
 });
 
-// Calculate damage based on word length and complexity
+// Calculate damage based on word length, substring status, and complexity
 function calculateDamage(givenWord, submittedWord) {
-  // Base damage from word length
-  let damage = submittedWord.length;
-  
-  // Check if word is a substring (easier to form)
-  const isSubstring = givenWord.includes(submittedWord);
-  
-  // Apply non-linear scaling for longer words
-  // Words longer than 5 letters get bonus damage
-  if (submittedWord.length > 5) {
-    damage += Math.pow(submittedWord.length - 5, 1.5);
+    // Base damage from word length (exponential scaling)
+    let lengthFactor = submittedWord.length;
+    
+    // Exponential growth for longer words (words > 5 get bonus damage)
+    if (submittedWord.length > 5) {
+      lengthFactor += Math.pow(submittedWord.length - 5, 1.8);
+    }
+    
+    // Substring penalty: if the word appears directly in the given word, it's easier to find
+    const isSubstring = givenWord.toLowerCase().includes(submittedWord.toLowerCase());
+    const substringMultiplier = isSubstring ? 0.6 : 1.0;
+    
+    // Letter diversity factor: using many different letters is harder than repeating the same ones
+    const uniqueLetters = new Set(submittedWord.split('')).size;
+    const letterDiversityFactor = 0.5 + (uniqueLetters / submittedWord.length) * 0.5;
+    
+    // Letter position rearrangement complexity:
+    // If you use consecutive letters from the original word, it's easier
+    const positionComplexity = calculatePositionComplexity(givenWord, submittedWord);
+    
+    // Rare letters bonus: using less common letters is harder
+    const rareLetterBonus = calculateRareLetterBonus(submittedWord);
+    
+    // Combine all factors
+    let damage = lengthFactor * substringMultiplier * letterDiversityFactor * positionComplexity;
+    damage += rareLetterBonus;
+    
+    // Log the damage calculation components for debugging
+    console.log(`Damage calculation for "${submittedWord}":
+      - Length factor: ${lengthFactor}
+      - Substring multiplier: ${substringMultiplier}
+      - Letter diversity: ${letterDiversityFactor}
+      - Position complexity: ${positionComplexity}
+      - Rare letter bonus: ${rareLetterBonus}
+      - Final damage: ${Math.max(1, Math.round(damage, 2))}
+    `);
+    
+    return Math.max(1, Math.round(damage, 2));
   }
   
-  // Reduce damage for substrings (easier words)
-  if (isSubstring) {
-    damage = Math.max(1, Math.floor(damage * 0.7));
+  // Calculate position complexity
+  function calculatePositionComplexity(givenWord, submittedWord) {
+    // Default complexity factor
+    let complexity = 1.0;
+    
+    // First, check if letters are used in a different order than the original word
+    // Create a mapping of original word letter positions
+    const letterPositions = {};
+    for (let i = 0; i < givenWord.length; i++) {
+      const char = givenWord[i].toLowerCase();
+      if (!letterPositions[char]) {
+        letterPositions[char] = [];
+      }
+      letterPositions[char].push(i);
+    }
+    
+    // Track the positions used in the submitted word
+    let lastUsedPosition = -1;
+    let positionJumps = 0;
+    
+    // Go through submitted word and check position patterns
+    for (let i = 0; i < submittedWord.length; i++) {
+      const char = submittedWord[i].toLowerCase();
+      if (letterPositions[char] && letterPositions[char].length > 0) {
+        // For each letter, find the closest position to the last used position
+        let closestPosition = -1;
+        let minDistance = Infinity;
+        
+        for (const pos of letterPositions[char]) {
+          if (lastUsedPosition === -1) {
+            // First letter, just use first occurrence
+            closestPosition = pos;
+            break;
+          } else {
+            const distance = Math.abs(pos - lastUsedPosition);
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestPosition = pos;
+            }
+          }
+        }
+        
+        // If we used a position, update state
+        if (closestPosition !== -1) {
+          // If we jumped more than 1 position, count it as a complexity increase
+          if (lastUsedPosition !== -1 && Math.abs(closestPosition - lastUsedPosition) > 1) {
+            positionJumps++;
+          }
+          
+          // Remove the used position to avoid reusing the same letter position
+          letterPositions[char] = letterPositions[char].filter(p => p !== closestPosition);
+          lastUsedPosition = closestPosition;
+        }
+      }
+    }
+    
+    // More position jumps = more complexity
+    if (positionJumps > 0) {
+      complexity *= (1 + (positionJumps / submittedWord.length) * 0.5);
+    }
+    
+    return complexity;
   }
   
-  // Calculate letter rearrangement complexity
-  const letterComplexity = calculateLetterComplexity(givenWord, submittedWord);
-  damage = Math.ceil(damage * (1 + letterComplexity * 0.2));
-  
-  return Math.max(1, Math.floor(damage));
-}
-
-// Calculate letter rearrangement complexity
-function calculateLetterComplexity(givenWord, submittedWord) {
-  // Count unique letters used
-  const uniqueLetters = new Set(submittedWord.split('')).size;
-  
-  // Calculate ratio of unique letters to total length
-  return uniqueLetters / submittedWord.length;
-}
+  // Calculate bonus for using rare letters
+  function calculateRareLetterBonus(word) {
+    // Russian letter frequency (roughly approximated, could be refined)
+    const letterFrequency = {
+      'а': 0.062, 'б': 0.014, 'в': 0.038, 'г': 0.013, 'д': 0.025,
+      'е': 0.072, 'ё': 0.003, 'ж': 0.007, 'з': 0.016, 'и': 0.062,
+      'й': 0.010, 'к': 0.028, 'л': 0.035, 'м': 0.026, 'н': 0.053,
+      'о': 0.090, 'п': 0.023, 'р': 0.040, 'с': 0.045, 'т': 0.053,
+      'у': 0.021, 'ф': 0.002, 'х': 0.009, 'ц': 0.004, 'ч': 0.012,
+      'ш': 0.006, 'щ': 0.003, 'ъ': 0.000, 'ы': 0.016, 'ь': 0.014,
+      'э': 0.003, 'ю': 0.006, 'я': 0.018
+    };
+    
+    let bonus = 0;
+    const usedLetters = new Set(word.toLowerCase().split(''));
+    
+    for (const letter of usedLetters) {
+      // If it's a rare letter (frequency < 0.01), add bonus
+      if (letterFrequency[letter] && letterFrequency[letter] < 0.03) {
+        bonus += (0.03 - letterFrequency[letter]) * 10;
+      }
+    }
+    
+    return bonus;
+  }
 
 server.listen(3000, () => {
   console.log('Server running on port 3000');

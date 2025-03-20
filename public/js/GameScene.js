@@ -21,7 +21,7 @@ class GameScene extends Phaser.Scene {
     
     // UI layout constants
     this.castleYFraction = 0.8;
-    this.castleXOffsetFraction = 0.45;
+    this.castleXOffsetFraction = 0.4;
     this.castleSizeFraction = 0.25;
     this.hpBarWidthFraction = 0.15;
     this.hpBarHeightFraction = 0.02;
@@ -320,34 +320,41 @@ initLayoutValues() {
               this.endGame();
           }
       });
-
-      window.socket.on('opponentFireball', (data) => {
-        // Create opponent's fireball (coming toward player)
-        this.createOpponentFireball(data.damage, data.startX, data.startY, data.targetX, data.targetY);
-    });
       
-      window.socket.on('wordResult', (result) => {
-          if (result.valid) {
-              this.damageText.setText(`Нанесено урона: ${result.damage}`);
-              this.damageText.setColor('#00ff00');
-              
-              // launch fireball
-              this.launchFireball(result.damage)
-
-              if (result.increaseMultiplier) {
-                  this.multiplier += 0.2;
-                  this.updateMultiplierDisplay();
-                  this.lastWordTime = Date.now();
-              }
-          } else {
-              this.damageText.setText(`Недопустимое слово: ${result.reason}`);
-              this.damageText.setColor('#ff0000');
-              
-              if (result.resetMultiplier) {
-                  this.multiplier = 1.0;
-                  this.updateMultiplierDisplay();
-              }
+    window.socket.on('wordResult', (result) => {
+        if (result.valid) {
+          this.damageText.setText(`Нанесено урона: ${result.damage}`);
+          this.damageText.setColor('#00ff00');
+          
+          // Handle successful word
+          this.handleWordSuccess(result.damage);
+          
+          if (result.increaseMultiplier) {
+            this.multiplier += 0.2;
+            this.updateMultiplierDisplay();
+            this.lastWordTime = Date.now();
           }
+        } else {
+          this.damageText.setText(`Недопустимое слово: ${result.reason}`);
+          this.damageText.setColor('#ff0000');
+          
+          if (result.resetMultiplier) {
+            this.multiplier = 1.0;
+            this.updateMultiplierDisplay();
+          }
+        }
+      });
+
+      window.socket.on('opponentWordSuccess', (data) => {
+        // Create opponent's fireball (coming toward player)
+        this.createFireball({
+          damage: data.damage,
+          startX: this.screenWidth / 2 + this.castleXOffset,
+          startY: this.castleY - this.castleSize * 0.2,
+          targetX: this.screenWidth / 2 - this.castleXOffset,
+          targetY: this.castleY - this.castleSize * 0.2,
+          isPlayerFireball: false
+        });
       });
       
       window.socket.on('gameStats', (stats) => {
@@ -493,27 +500,37 @@ initLayoutValues() {
           this.playerInput += event.key;
           this.inputText.setText(this.playerInput);
       }
-  }
+    }
 
-  createOpponentFireball(damage, startX, startY, targetX, targetY) {
-    // This is similar to launchFireball but with positions flipped
-    // For opponent, fireball comes from right to left (their castle to yours)
-    const actualStartX = this.screenWidth / 2 + this.castleXOffset;
-    const actualTargetX = this.screenWidth / 2 - this.castleXOffset;
+createFireball(config) {
+    // Default values
+    const defaults = {
+      damage: 10,
+      startX: 0, 
+      startY: 0,
+      targetX: 0,
+      targetY: 0,
+      isPlayerFireball: true
+    };
     
-    // Create fireball as a red circle
-    const damageRatio = Math.min(1, Math.abs(damage - 20) / 20); // 0 if damage is 20, 1 if far away
+    // Merge defaults with provided config
+    const settings = { ...defaults, ...config };
+    
+    console.log('Creating fireball:', settings);
+    
+    // Create fireball as a circle with color based on damage
+    const damageRatio = Math.min(1, Math.abs(settings.damage - 20) / 20);
     const red = Math.floor(255 * damageRatio);
     const blue = Math.floor(255 * (1 - damageRatio));
     const color = Phaser.Display.Color.GetColor(red, 0, blue);
-    const fireball = this.add.circle(startX, startY, 15, color);
-
+    const fireball = this.add.circle(settings.startX, settings.startY, 15, color);
+  
     this.physics.add.existing(fireball);
     fireball.setDepth(5);
     
     // Add glow effect
     const glowSize = 25;
-    const glow = this.add.circle(actualStartX, startY, glowSize, 0xff6600, 0.4);
+    const glow = this.add.circle(settings.startX, settings.startY, glowSize, 0xff6600, 0.4);
     glow.setDepth(4);
     
     // Trail effect
@@ -521,8 +538,8 @@ initLayoutValues() {
     fireball.trailMax = 10;
     
     // Calculate velocity for arc trajectory
-    const dx = actualTargetX - actualStartX;
-    const dy = targetY - startY;
+    const dx = settings.targetX - settings.startX;
+    const dy = settings.targetY - settings.startY;
     const angle = Math.atan2(dy, dx);
     const speed = 500;
     
@@ -533,144 +550,76 @@ initLayoutValues() {
     fireball.body.setVelocity(velX, velY);
     fireball.body.setGravityY(400);
     
-    fireball.damage = damage;
-    fireball.targetCastle = this.playerCastle;
-
+    fireball.damage = settings.damage;
+    fireball.targetCastle = settings.isPlayerFireball ? this.opponentCastle : this.playerCastle;
+  
     // Update the glow position to follow the fireball
     this.time.addEvent({
       delay: 10,
       callback: () => {
-          if (fireball.active) {
-              glow.setPosition(fireball.x, fireball.y);
-              
-              // Add trail effect
-              this.addTrailParticle(fireball);
-              
-              // Check for collision manually
-              if (Phaser.Geom.Intersects.CircleToRectangle(
-                  new Phaser.Geom.Circle(fireball.x, fireball.y, 15),
-                  new Phaser.Geom.Rectangle(
-                      fireball.targetCastle.x - fireball.targetCastle.displayWidth/2,
-                      fireball.targetCastle.y - fireball.targetCastle.displayHeight/2,
-                      fireball.targetCastle.displayWidth,
-                      fireball.targetCastle.displayHeight
-                  )
-              )) {
-                  this.fireballHit(fireball);
-                  glow.destroy();
-              }
-              
-              // Destroy if it goes off screen
-              if (fireball.x < 0 || fireball.x > this.screenWidth || 
-                  fireball.y < 0 || fireball.y > this.screenHeight) {
-                  fireball.destroy();
-                  glow.destroy();
-                  // Clean up trail
-                  fireball.trail.forEach(p => p.destroy());
-              }
-          } else {
-              glow.destroy();
+        if (fireball.active) {
+          glow.setPosition(fireball.x, fireball.y);
+          
+          // Add trail effect
+          this.addTrailParticle(fireball);
+          
+          // Check for collision manually
+          if (Phaser.Geom.Intersects.CircleToRectangle(
+            new Phaser.Geom.Circle(fireball.x, fireball.y, 15),
+            new Phaser.Geom.Rectangle(
+              fireball.targetCastle.x - fireball.targetCastle.displayWidth/2,
+              fireball.targetCastle.y - fireball.targetCastle.displayHeight/2,
+              fireball.targetCastle.displayWidth,
+              fireball.targetCastle.displayHeight
+            )
+          )) {
+            this.fireballHit(fireball);
+            glow.destroy();
           }
+          
+          // Destroy if it goes off screen
+          if (fireball.x < 0 || fireball.x > this.screenWidth || 
+              fireball.y < 0 || fireball.y > this.screenHeight) {
+            fireball.destroy();
+            glow.destroy();
+            // Clean up trail
+            fireball.trail.forEach(p => p.destroy());
+          }
+        } else {
+          glow.destroy();
+        }
       },
       callbackScope: this,
       loop: true
-  });
-}
-
-  launchFireball(damage) {
-      window.socket.emit('fireballLaunched', {
-        damage: damage,
-        startX: this.screenWidth / 2 - this.castleXOffset,
-        startY: this.castleY - this.castleSize * 0.2,
-        targetX: this.screenWidth / 2 + this.castleXOffset,
-        targetY: this.castleY - this.castleSize * 0.2
     });
+    
+    return fireball;
+  }
 
-    // Calculate starting position (from player castle)
+  handleWordSuccess(damage) {
+    // Calculate positions
     const startX = this.screenWidth / 2 - this.castleXOffset;
     const startY = this.castleY - this.castleSize * 0.2;
-    
-    // Create fireball as a red circle
-    const damageRatio = Math.min(1, Math.abs(damage - 20) / 20); // 0 if damage is 20, 1 if far away
-    const red = Math.floor(255 * damageRatio);
-    const blue = Math.floor(255 * (1 - damageRatio));
-    const color = Phaser.Display.Color.GetColor(red, 0, blue);
-    const fireball = this.add.circle(startX, startY, 15, color);
-
-    this.physics.add.existing(fireball); // Add physics to the circle
-    fireball.setDepth(5);
-    
-    // Add glow effect
-    const glowSize = 25;
-    const glow = this.add.circle(startX, startY, glowSize, 0xff6600, 0.4);
-    glow.setDepth(4);
-    
-    // Trail effect - create an array to hold trail particles
-    fireball.trail = [];
-    fireball.trailMax = 10; // Maximum number of trail particles
-    
-    // Calculate target position (opponent's castle)
     const targetX = this.screenWidth / 2 + this.castleXOffset;
     const targetY = this.castleY - this.castleSize * 0.2;
     
-    // Calculate velocity for arc trajectory
-    const dx = targetX - startX;
-    const dy = targetY - startY;
-    const angle = Math.atan2(dy, dx);
-    const speed = 500;
+    // Create the player's fireball
+    this.createFireball({
+        damage: damage,
+        startX: startX,
+        startY: startY,
+        targetX: targetX,
+        targetY: targetY,
+        isPlayerFireball: true
+    });
     
-    // Add some arc by setting negative y velocity
-    const velX = Math.cos(angle) * speed;
-    const velY = Math.sin(angle) * speed - 200; // Negative Y to create arc up
-    
-    // Set initial velocity
-    fireball.body.setVelocity(velX, velY);
-    fireball.body.setGravityY(400); // Add gravity for arc effect
-    
-    // Store damage value with the fireball
-    fireball.damage = damage;
-    
-    // Create a reference to the opponent castle for collision detection
-    fireball.targetCastle = this.opponentCastle;
-    
-    // Update the glow position to follow the fireball
-    this.time.addEvent({
-        delay: 10,
-        callback: () => {
-            if (fireball.active) {
-                glow.setPosition(fireball.x, fireball.y);
-                
-                // Add trail effect
-                this.addTrailParticle(fireball);
-                
-                // Check for collision manually
-                if (Phaser.Geom.Intersects.CircleToRectangle(
-                    new Phaser.Geom.Circle(fireball.x, fireball.y, 15),
-                    new Phaser.Geom.Rectangle(
-                        fireball.targetCastle.x - fireball.targetCastle.displayWidth/2,
-                        fireball.targetCastle.y - fireball.targetCastle.displayHeight/2,
-                        fireball.targetCastle.displayWidth,
-                        fireball.targetCastle.displayHeight
-                    )
-                )) {
-                    this.fireballHit(fireball);
-                    glow.destroy();
-                }
-                
-                // Destroy if it goes off screen
-                if (fireball.x < 0 || fireball.x > this.screenWidth || 
-                    fireball.y < 0 || fireball.y > this.screenHeight) {
-                    fireball.destroy();
-                    glow.destroy();
-                    // Clean up trail
-                    fireball.trail.forEach(p => p.destroy());
-                }
-            } else {
-                glow.destroy();
-            }
-        },
-        callbackScope: this,
-        loop: true
+    // Send data to server (so opponent can see it too)
+    window.socket.emit('wordSuccess', {
+        damage: damage,
+        startX: startX,
+        startY: startY,
+        targetX: targetX,
+        targetY: targetY
     });
 }
 
