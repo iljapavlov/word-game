@@ -75,6 +75,9 @@ function isValidRussianNoun(word) {
 const disconnectedPlayers = {}; // { socketId: { roomId, timestamp } }
 
 io.on('connection', (socket) => {
+  // Send socket ID to client
+  socket.emit('socketId', { id: socket.id });
+  
   // Create a room
   socket.on('createRoom', (data) => {
     const roomId = Math.random().toString(36).substring(2, 8);
@@ -91,6 +94,7 @@ io.on('connection', (socket) => {
       usedWords: { player1: new Set(), player2: new Set() }
     };
     socket.emit('roomCreated', { roomId, roomName, gameMode });
+    io.emit('roomListUpdated');
   });
   
   // Join a room
@@ -256,6 +260,71 @@ io.on('connection', (socket) => {
         damage: data.damage,
         // No need to send positions as they'll be calculated on the opponent's side
       });
+    }
+  });
+
+  socket.on('leaveRoom', () => {
+    const roomId = socket.roomId;
+    if (roomId && rooms[roomId]) {
+      // Remove player from room
+      if (rooms[roomId].player1 === socket.id) {
+        rooms[roomId].player1 = null;
+      } else if (rooms[roomId].player2 === socket.id) {
+        rooms[roomId].player2 = null;
+      }
+      
+      // Leave the socket.io room
+      socket.leave(roomId);
+      
+      // Notify other player if present
+      if (rooms[roomId].player1 || rooms[roomId].player2) {
+        io.to(roomId).emit('playerLeft', { message: 'Opponent has left the game.' });
+      }
+      
+      // Clean up empty rooms
+      if (!rooms[roomId].player1 && !rooms[roomId].player2) {
+        delete rooms[roomId];
+      }
+      
+      // Clear room ID from socket
+      socket.roomId = null;
+      socket.playerPosition = null;
+      
+      // Update room list for all clients
+      io.emit('roomListUpdated');
+    }
+  });
+
+  // Add new handler for returning to lobby
+  socket.on('returnToLobby', () => {
+    const roomId = socket.roomId;
+    if (roomId && rooms[roomId]) {
+      // Remove player from room
+      if (rooms[roomId].player1 === socket.id) {
+        rooms[roomId].player1 = null;
+      } else if (rooms[roomId].player2 === socket.id) {
+        rooms[roomId].player2 = null;
+      }
+      
+      // Leave the socket.io room
+      socket.leave(roomId);
+      
+      // Notify other player if present
+      if (rooms[roomId].player1 || rooms[roomId].player2) {
+        io.to(roomId).emit('playerLeft', { message: 'Opponent has left the game.' });
+      }
+      
+      // Clean up empty rooms
+      if (!rooms[roomId].player1 && !rooms[roomId].player2) {
+        delete rooms[roomId];
+      }
+      
+      // Clear room ID from socket
+      socket.roomId = null;
+      socket.playerPosition = null;
+      
+      // Update room list for all clients
+      io.emit('roomListUpdated');
     }
   });
 
