@@ -1,3 +1,38 @@
+class RoomListItem extends Phaser.GameObjects.Container {
+  constructor(scene, x, y, room, onJoin, onDelete) {
+    super(scene, x, y);
+
+    const panel = scene.add.rectangle(0, 0, 400, 40, 0x333333, 0.6)
+      .setOrigin(0.5, 0.5)
+      .setInteractive()
+      .on('pointerdown', onJoin);
+
+    const roomText = scene.add.text(-180, 0, room.name, { fontSize: '18px', fill: '#fff' }).setOrigin(0, 0.5);
+    const playerText = scene.add.text(100, 0, `${room.players}/${room.maxPlayers}`, {
+      fontSize: '18px',
+      fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
+    }).setOrigin(0.5);
+    const statusText = scene.add.text(170, 0, room.status, {
+      fontSize: '16px',
+      fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
+    }).setOrigin(0, 0.5);
+
+    this.add([panel, roomText, playerText, statusText]);
+
+    if (room.isCreator) {
+      const deleteBtn = scene.add.image(180, 0, 'deleteIcon')
+        .setOrigin(0.5)
+        .setScale(0.5)
+        .setInteractive()
+        .on('pointerdown', onDelete);
+      this.add(deleteBtn);
+      addHoverEffect(scene, deleteBtn);
+    }
+
+    addHoverEffect(scene, panel);
+  }
+}
+
 class MenuScene extends Phaser.Scene {
   constructor() {
     super({ key: 'MenuScene' });
@@ -16,56 +51,11 @@ class MenuScene extends Phaser.Scene {
   }
 
   create() {
-    this.DEPTHS = {
-      BACKGROUND: 0,
-      PARTICLES: 1,
-      UI_BG: 2,
-      UI_ELEMENTS: 3
-    };
-
     this.initializeVariables();
     this.setupBackgroundElements();
     this.createSakuraParticles();
     this.createUI();
-
     this.setupEventListeners();
-
-    // --- DEBUGGING UI ---
-    const logo = this.children.list.find(child => child.texture && child.texture.key === 'logo');
-    if (logo) {
-      console.log('Logo found:', logo.x, logo.y, logo.scaleX, logo.scaleY, logo.alpha, logo.visible, logo.depth);
-    } else {
-      console.log('Logo not found.');
-    }
-
-    const createButton = this.children.list.find(child => child.texture && child.texture.key === 'createButton');
-    if (createButton) {
-      console.log('Create Button found:', createButton.x, createButton.y, createButton.scaleX, createButton.scaleY, createButton.alpha, createButton.visible, createButton.depth);
-    } else {
-      console.log('Create Button not found.');
-    }
-
-    const joinButton = this.children.list.find(child => child.texture && child.texture.key === 'joinButton');
-    if (joinButton) {
-      console.log('Join Button found:', joinButton.x, joinButton.y, joinButton.scaleX, joinButton.scaleY, joinButton.alpha, joinButton.visible, joinButton.depth);
-    } else {
-      console.log('Join Button not found.');
-    }
-
-    const userIdText = this.children.list.find(child => child.text && child.text.startsWith('ID:'));
-    if (userIdText) {
-      console.log('User ID Text found:', userIdText.x, userIdText.y, userIdText.alpha, userIdText.visible, userIdText.depth, userIdText.style);
-    } else {
-      console.log('User ID Text not found.');
-    }
-
-    const roomListTitle = this.children.list.find(child => child.text && child.text === 'Available Rooms:');
-    if (roomListTitle) {
-      console.log('Room List Title found:', roomListTitle.x, roomListTitle.y, roomListTitle.alpha, roomListTitle.visible, roomListTitle.depth, roomListTitle.style);
-    } else {
-      console.log('Room List Title not found.');
-    }
-    // --- END DEBUGGING UI ---
   }
 
   initializeVariables() {
@@ -78,7 +68,7 @@ class MenuScene extends Phaser.Scene {
     // Add background image
     this.add.image(this.width/2, this.height/2, 'menuBg')
     .setDisplaySize(this.width, this.height)
-    .setDepth(this.DEPTHS.BACKGROUND);
+    .setDepth(DEPTHS.BACKGROUND);
   }
 
   createUI() {
@@ -92,7 +82,7 @@ class MenuScene extends Phaser.Scene {
     // Add logo
     this.add.image(this.width / 2, 100, 'logo')
       .setOrigin(0.5)
-      .setDepth(this.DEPTHS.UI_ELEMENTS);
+      .setDepth(DEPTHS.UI_ELEMENTS);
   }
 
   createButtons() {
@@ -101,7 +91,7 @@ class MenuScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setScale(0.7)
       .setInteractive()
-      .setDepth(this.DEPTHS.UI_ELEMENTS)
+      .setDepth(DEPTHS.UI_ELEMENTS)
       .on('pointerdown', () => {
         this.clickSound.play();
         this.handleCreateRoom();
@@ -110,23 +100,27 @@ class MenuScene extends Phaser.Scene {
     const joinBtn = this.add.image(this.width / 2 + 110, 240, 'joinButton')
       .setOrigin(0.5)
       .setInteractive()
-      .setDepth(this.DEPTHS.UI_ELEMENTS)
+      .setDepth(DEPTHS.UI_ELEMENTS)
       .on('pointerdown', () => {
         this.clickSound.play();
         this.handleJoinRoom();
       });
     
     // Add hover effects
-    this.addHoverEffect(createBtn);
-    this.addHoverEffect(joinBtn);
+    addHoverEffect(this, createBtn);
+    addHoverEffect(this, joinBtn);
   }
 
   handleCreateRoom() {
-    const roomName = prompt('Enter room name:');
-    if (roomName) {
-      const gameMode = confirm('Click OK for Single Player (vs Bot), Cancel for Multiplayer') ? 'singleplayer' : 'multiplayer';
-      const maxPlayers = gameMode === 'singleplayer' ? 1 : 2;
-      window.socket.emit('createRoom', { name: roomName, settings: { maxPlayers, gameMode } });
+    try {
+      const roomName = prompt('Enter room name:');
+      if (roomName) {
+        const gameMode = confirm('Click OK for Single Player (vs Bot), Cancel for Multiplayer') ? 'singleplayer' : 'multiplayer';
+        const maxPlayers = gameMode === 'singleplayer' ? 1 : 2;
+        window.socket.emit('createRoom', { name: roomName, settings: { maxPlayers, gameMode } });
+      }
+    } catch (error) {
+      console.error('Error creating room:', error);
     }
   }
 
@@ -139,13 +133,13 @@ class MenuScene extends Phaser.Scene {
 
   displayUserID() {
     // Display user ID in the upper right corner
-    if (window.socket && window.socket.id) {
-      this.add.text(this.width - 20, 20, `ID: ${window.socket.id.substring(0, 8)}...`, {
+    if (window.playerId) {
+      this.add.text(this.width - 20, 20, `ID: ${window.playerId.substring(0, 8)}...`, {
         fontSize: '16px',
-        fill: '#ffffff',
+        fill: COLORS.TEXT_WHITE,
         backgroundColor: '#00000080',
         padding: { x: 8, y: 4 }
-      }).setOrigin(1, 0).setDepth(this.DEPTHS.UI_ELEMENTS);
+      }).setOrigin(1, 0).setDepth(DEPTHS.UI_ELEMENTS);
     }
   }
 
@@ -157,18 +151,18 @@ class MenuScene extends Phaser.Scene {
     // More transparent panel (0.6 instead of 0.7)
     const panelBg = this.add.rectangle(this.width / 2, panelY + panelHeight/2, 500, panelHeight, 0x000000, 0.6)
       .setOrigin(0.5)
-      .setDepth(this.DEPTHS.UI_BG)
+      .setDepth(DEPTHS.UI_BG)
     
     // Room list title
     this.add.text(this.width / 2, panelY + 15, 'Available Rooms:', {
       fontSize: '24px',
       fill: '#fff',
       fontStyle: 'bold'
-    }).setOrigin(0.5).setDepth(this.DEPTHS.UI_ELEMENTS);
+    }).setOrigin(0.5).setDepth(DEPTHS.UI_ELEMENTS);
     
     // Container for room list - moved lower relative to the title
     this.roomListContainer = this.add.container(this.width / 2, panelY + 60);
-    this.roomListContainer.setDepth(this.DEPTHS.UI_ELEMENTS);
+    this.roomListContainer.setDepth(DEPTHS.UI_ELEMENTS);
     
     // No rooms text (initially visible)
     this.noRoomsText = this.add.text(0, 50, 'No rooms available. Create one!', {
@@ -216,22 +210,32 @@ class MenuScene extends Phaser.Scene {
   }
 
   createSakuraParticles() {
-    // Create particle emitter using our generated textures
-    this.sakuraEmitter = this.add.particles('pixelSakura2').createEmitter({
-      x: { min: 0, max: this.width },
-      y: 0,
-      lifespan: 5000,
-      speedY: { min: 40, max: 80 },
-      scale: { start: 1.5, end: 1.5 },
-      quantity: 2,
-      blendMode: 'OVERLAY',
-      frequency: 80,
-      emitZone: { type: 'random', source: new Phaser.Geom.Rectangle(0, 0, this.width, 1) }
+    // Create an array to hold multiple particle emitters
+    this.sakuraEmitters = [];
+    
+    // Array of available textures
+    const textures = ['pixelSakura1', 'pixelSakura2', 'pixelSakura3'];
+    
+    textures.forEach((texture) => {
+      const emitter = this.add.particles(texture).createEmitter({
+        x: { min: 0, max: this.width },
+        y: 0,
+        alpha: { min: .7, max: 1 },
+        lifespan: 8000,
+        speedX: { min: -20, max: 20 },      // Random horizontal speed for wind
+        speedY: { min: 20, max: 40 },      // Slower vertical speed
+        accelerationY: 7,                 // Small gravitational pull
+        angle: { min: 0, max: 360 },       // Initial random orientation
+        rotate: { min: -0.5, max: 0.5 },   // Slow rotation for wandering
+        scale: { start: 2.5, end: 1.5 },
+        quantity: .2,
+        blendMode: 'OVERLAY',
+        frequency: 200,
+        emitZone: { type: 'random', source: new Phaser.Geom.Rectangle(0, 0, this.width, 1) }
+      });
+      this.sakuraEmitters.push(emitter);
     });
-
-    // Log the emitter's texture
-    console.log('Sakura Emitter Texture:', this.sakuraEmitter.texture);
-
+  
     // Ensure particles don't block interaction
     this.input.setTopOnly(true);
   }
@@ -298,10 +302,8 @@ class MenuScene extends Phaser.Scene {
   }
 
   updateRoomList(roomList) {
-    // Clear existing room list
     this.roomListContainer.removeAll(true);
-    
-    // Show or hide "no rooms" message
+  
     if (roomList.length === 0) {
       this.noRoomsText = this.add.text(0, 50, 'No rooms available. Create one!', {
         fontSize: '18px',
@@ -311,84 +313,28 @@ class MenuScene extends Phaser.Scene {
       this.roomListContainer.add(this.noRoomsText);
       return;
     }
-    
-    // Add each room as a styled panel
+  
     roomList.forEach((room, index) => {
       const yPos = index * 50;
-      
-      // Room panel background
-      const panel = this.add.rectangle(0, yPos, 400, 40, 0x333333, 0.6) // More transparent
-        .setOrigin(0.5, 0.5)
-        .setInteractive()
-        .on('pointerdown', () => {
+      const item = new RoomListItem(this, 0, yPos, room,
+        () => {
           this.clickSound.play();
           window.socket.emit('joinRoom', room.id);
-        });
-      
-      // Room name and status
-      const roomText = this.add.text(-180, yPos, room.name, {
-        fontSize: '18px',
-        fill: '#fff'
-      }).setOrigin(0, 0.5);
-      
-      // Player count
-      const playerText = this.add.text(100, yPos, `${room.players}/${room.maxPlayers}`, {
-        fontSize: '18px',
-        fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
-      }).setOrigin(0.5);
-      
-      // Status text
-      const statusText = this.add.text(170, yPos, room.status, {
-        fontSize: '16px',
-        fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
-      }).setOrigin(0, 0.5);
-      
-      // Add delete button
-      const deleteBtn = this.add.image(180, yPos, 'deleteIcon')
-        .setOrigin(0.5)
-        .setScale(0.5)
-        .setInteractive()
-        .setAlpha(0.7)
-        .on('pointerdown', (event) => {
-          event.stopPropagation(); // Prevent joining the room when clicking delete
+        },
+        () => {
           this.clickSound.play();
-          window.socket.emit('deleteRoom', room.id);
-        });
-      
-      // Add hover effect to panel and delete button
-      this.addHoverEffect(panel);
-      this.addHoverEffect(deleteBtn, 0.5, 0.6);
-      
-      // Add all elements to container
-      this.roomListContainer.add([panel, roomText, playerText, statusText, deleteBtn]);
-    });
-  }
-  
-  addHoverEffect(gameObject, baseScale = null, hoverScale = null) {
-    // Store the initial scale when adding the effect
-    const initialScale = baseScale || gameObject.scale;
-    const targetScale = hoverScale || (initialScale * 1.1);
-    
-    gameObject.on('pointerover', () => {
-      this.tweens.add({
-        targets: gameObject,
-        scale: targetScale,
-        duration: 100
-      });
-    });
-    
-    gameObject.on('pointerout', () => {
-      this.tweens.add({
-        targets: gameObject,
-        scale: initialScale,
-        duration: 100
-      });
+          if (confirm(`Are you sure you want to delete room "${room.name}"?`)) {
+            window.socket.emit('deleteRoom', room.id);
+          }
+        }
+      );
+      this.roomListContainer.add(item);
     });
   }
 
   shutdown() {
-    if (this.sakuraEmitter) {
-      this.sakuraEmitter.stop();
+    if (this.sakuraEmitters) {
+      this.sakuraEmitters.forEach(emitter => emitter.stop());
     }
     
     this.children.removeAll();

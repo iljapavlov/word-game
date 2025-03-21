@@ -60,6 +60,13 @@ class WaitingScene extends Phaser.Scene {
       window.onpopstate = () => {
         this.returnToLobby();
       };
+
+      window.socket.on('gameStarting', (data) => {
+        console.log('Game starting with word:', data.givenWord);
+        window.givenWord = data.givenWord;
+        this.scene.start('CountdownScene');
+        this.scene.stop('WaitingScene');
+      });
     }
     
     returnToLobby() {
@@ -79,5 +86,6 @@ class WaitingScene extends Phaser.Scene {
     shutdown() {
       // Clean up browser back button handler
       window.onpopstate = null;
+      window.socket.off('gameStarting');
     }
 }

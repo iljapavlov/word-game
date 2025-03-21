@@ -20,11 +20,13 @@
   </style>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+  
+  <script src="js/constants.js"></script>
+  <script src="js/utils.js"></script>
   <script src="js/MenuScene.js"></script>
   <script src="js/WaitingScene.js"></script>
   <script src="js/CountdownScene.js"></script>
   <script src="js/GameScene.js"></script>
-  <script src="js/utils.js"></script>
 </head>
 <body>
   <div id="game-container"></div>
@@ -32,13 +34,25 @@
   <script>
     const socket = io();
     window.socket = socket;
-    
+  
+    // Get or create a stable player ID from local storage (more persistent than session storage)
+    let playerId = localStorage.getItem('playerId');
+    if (!playerId) {
+      playerId = 'player_' + Math.random().toString(36).substr(2, 9); // Generate a unique ID
+      localStorage.setItem('playerId', playerId); // Store it in local storage for persistence
+    }
+    window.playerId = playerId; // Make it globally accessible for Phaser scenes
+  
+    // Send the player ID to the server
+    socket.emit('setPlayerId', playerId);
+  
+    // Handle room joining from URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const roomIdFromUrl = urlParams.get('room');
     if (roomIdFromUrl) {
       window.socket.emit('joinRoom', roomIdFromUrl);
     }
-
+  
     // Phaser game configuration
     const config = {
       type: Phaser.AUTO,
@@ -53,46 +67,44 @@
       physics: {
         default: 'arcade',
         arcade: {
-            gravity: { y: 0 },
-            debug: false
+          gravity: { y: 0 },
+          debug: false
         }
-    }
+      }
     };
-
+  
     const game = new Phaser.Game(config);
-
+  
     // Socket listeners
-    window.socket.on('joinedRoom', (data) => {
-      history.pushState({}, '', `?room=${data.roomId}`);
+    window.socket.on('socketId', (data) => {
+      window.socketId = data.id;
+      if (data.playerId) {
+        window.playerId = data.playerId;
+      }
     });
-
+  
     window.socket.on('connect', () => {
       console.log('Connected to server');
+      socket.emit('setPlayerId', playerId);
       const lastRoomId = localStorage.getItem('lastRoomId');
       if (lastRoomId) {
         socket.emit('reconnectToRoom', lastRoomId);
       }
     });
-
-    window.socket.on('gameData', (data) => {
-      console.log('Received game data with word:', data.givenWord);
-      window.givenWord = data.givenWord;
-    });
-
+  
     window.socket.on('startGame', (data) => {
       console.log('Received startGame:', data.message);
-      if (game.scene.isActive('WaitingScene')) {
-        console.log('Stopping WaitingScene');
-        game.scene.stop('WaitingScene');
-      }
+      game.scene.getScenes(true).forEach(scene => {
+        game.scene.stop(scene.scene.key);
+      });
       console.log('Starting CountdownScene');
       game.scene.start('CountdownScene');
+      console.log('Active scenes:', game.scene.getScenes(true).map(s => s.scene.key));
     });
-
+  
     window.socket.on('gameRestarted', (data) => {
       console.log('Game restarted:', data.message);
       window.givenWord = data.givenWord;
-      
       if (game.scene.isActive('GameScene')) {
         game.scene.stop('GameScene');
       }

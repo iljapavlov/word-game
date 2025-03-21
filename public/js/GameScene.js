@@ -195,11 +195,14 @@ initLayoutValues() {
   initGameState() {
       this.lastWordTime = Date.now();
       
-      // Check if we already have the word from the global variable
       if (window.givenWord) {
           this.givenWord = window.givenWord;
           this.wordText.setText(this.givenWord.toUpperCase());
           console.log('Using stored word:', this.givenWord);
+      } else {
+        // Request the word from the server if not available
+        window.socket.emit('requestGameState');
+        console.log('Requesting game state because word is not available');
       }
   }
   
@@ -213,6 +216,12 @@ initLayoutValues() {
   }
   
   setupSocketListeners() {
+      window.socket.on('gameEnded', (data) => {
+        this.gameEnded = true;
+        const isWinner = data.winner === window.playerId;
+        this.showGameEndMessage(isWinner);
+      });
+
       window.socket.on('gameRestarted', (data) => {
           console.log(data.message);
           this.resetGame(data.givenWord);
@@ -221,7 +230,7 @@ initLayoutValues() {
       window.socket.on('gameData', (data) => {
           console.log('GameScene received game data with word:', data.givenWord);
           this.givenWord = data.givenWord;
-          this.wordText.setText(this.givenWord);
+          this.wordText.setText(this.givenWord.toUpperCase());
       });
 
       window.socket.on('playerDisconnected', (data) => {
@@ -299,7 +308,7 @@ initLayoutValues() {
       window.socket.on('gameState', (data) => {
           console.log('Received game state:', data);
           if (data.hp) {
-              if (socket.playerPosition === 'player1') {
+            if (window.socket.playerPosition === 'player1') {
                   this.playerHP = data.hp.player1;
                   this.opponentHP = data.hp.player2;
               } else {
@@ -309,18 +318,36 @@ initLayoutValues() {
               this.updatePlayerHPBar();
               this.updateOpponentHPBar();
           }
+
+          if (data.givenWord) {
+            this.givenWord = data.givenWord;
+            this.wordText.setText(this.givenWord.toUpperCase());
+            console.log('Word set from game state:', this.givenWord);
+          }
       });
 
       // Update HP bars based on server data
+      // Listen for HP updates
       window.socket.on('updateHP', (data) => {
-          this.playerHP = data.yourHP;
-          this.opponentHP = data.opponentHP;
+        if (data.hp) {
+          // Update HP based on player position
+          if (window.socket.playerPosition === 'player1') {
+            this.playerHP = data.hp.player1;
+            this.opponentHP = data.hp.player2;
+          } else {
+            this.playerHP = data.hp.player2;
+            this.opponentHP = data.hp.player1;
+          }
+          
+          // Update HP bars
           this.updatePlayerHPBar();
           this.updateOpponentHPBar();
-
-          if (!this.gameEnded && (this.playerHP <= 0 || this.opponentHP <= 0)) {
-              this.endGame();
+          
+          // Check for game end
+          if ((this.playerHP <= 0 || this.opponentHP <= 0) && !this.gameEnded) {
+            this.endGame();
           }
+        }
       });
       
     window.socket.on('wordResult', (result) => {
@@ -348,7 +375,6 @@ initLayoutValues() {
       });
 
       window.socket.on('opponentWordSuccess', (data) => {
-        // Create opponent's fireball (coming toward player)
         this.createFireball({
           damage: data.damage,
           startX: this.screenWidth / 2 + this.castleXOffset,
@@ -396,6 +422,19 @@ initLayoutValues() {
     
     // Request current game state including HP
     window.socket.emit('requestGameState');
+  }
+
+  showGameEndMessage(isWinner) {
+    // Add stats button
+    const statsButton = this.add.text(
+      this.screenWidth * 0.5,
+      this.screenHeight * 0.65,
+      'View Game Stats',
+      { fontSize: '24px', fill: '#fff', backgroundColor: '#00000080', padding: { x: 15, y: 10 } }
+    ).setOrigin(0.5).setInteractive().on('pointerdown', () => {
+      window.socket.emit('requestGameStats');
+    });
+    
   }
 
   updateMultiplierDisplay() {
@@ -475,7 +514,7 @@ initLayoutValues() {
                   this.damageText.setColor('#ff0000');
                   this.multiplier = 1.0;
                   this.updateMultiplierDisplay();
-              } else if (submittedWord === givenWord.toLowerCase()) {
+              } else if (submittedWord === this.givenWord.toLowerCase()) {
                   this.damageText.setText('Нельзя использовать исходное слово');
                   this.damageText.setColor('#ff0000');
                   this.multiplier = 1.0;
@@ -669,8 +708,30 @@ fireballHit(fireball) {
   // Add screen shake effect based on damage
   this.cameras.main.shake(200, 0.005 * fireball.damage);
   
+  // Update the appropriate HP value locally
+  if (fireball.targetCastle === this.playerCastle) {
+    this.playerHP = Math.max(0, this.playerHP - fireball.damage);
+    this.updatePlayerHPBar();
+    
+    // Check for game end
+    if (this.playerHP <= 0 && !this.gameEnded) {
+      this.endGame();
+    }
+  } else {
+    this.opponentHP = Math.max(0, this.opponentHP - fireball.damage);
+    this.updateOpponentHPBar();
+    
+    // Check for game end
+    if (this.opponentHP <= 0 && !this.gameEnded) {
+      this.endGame();
+    }
+  }
+
   // Notify server that fireball has hit
-  window.socket.emit('fireballHit');
+  window.socket.emit('fireballHit', {
+    damage: fireball.damage,
+    targetIsPlayer: fireball.targetCastle === this.playerCastle
+  });
   
   // Animate damage text
   this.tweens.add({
@@ -810,10 +871,8 @@ fireballHit(fireball) {
     }
 
     shutdown() {
-        // Clean up browser back button handler
+        this.cleanupSocketListeners();
         window.onpopstate = null;
-        
-        // Clean up all event listeners
         this.input.keyboard.removeAllListeners();
     }
 

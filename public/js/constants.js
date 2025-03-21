@@ -1,0 +1,13 @@
+const DEPTHS = {
+  BACKGROUND: 0,
+  PARTICLES: 1,
+  UI_BG: 2,
+  UI_ELEMENTS: 3
+};
+  
+const COLORS = {
+  PANEL_BG: 0x333333,
+  TEXT_WHITE: '#fff',
+  STATUS_OPEN: '#7CFC00',
+  STATUS_FULL: '#FF6347'
+};

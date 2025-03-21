@@ -1,15 +1,19 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const fs = require('fs');
-const path = require('path');
+const { createRoom, deleteRoom, rooms } = require('./public/js/roomManager');
 
 const app = express();
-app.use(express.static('public'));// comment out 
 const server = http.createServer(app);
 const io = socketIo(server);
 
-const rooms = {};
+const fs = require('fs');
+const path = require('path');
+
+app.use(express.static('public'));// comment out 
+
+const playerSockets = {}; // Map to track playerId -> socket
+
 let russianNouns = new Set();
 
 // Load Russian nouns dictionary
@@ -75,87 +79,94 @@ function isValidRussianNoun(word) {
 const disconnectedPlayers = {}; // { socketId: { roomId, timestamp } }
 
 io.on('connection', (socket) => {
-  // Send socket ID to client
-  socket.emit('socketId', { id: socket.id });
+  socket.on('setPlayerId', (playerId) => {
+    socket.playerId = playerId; // Attach playerId to the socket
+    playerSockets[playerId] = socket; // Store the mapping
+    console.log(`Player ${playerId} connected`);
+  });
+
+  // Send socket ID to client - update to send playerId instead
+  socket.emit('socketId', { id: socket.id, playerId: socket.playerId });
   
   // Create a room
   socket.on('createRoom', (data) => {
-    const roomId = Math.random().toString(36).substring(2, 8);
-    const roomName = data.name || `Room ${roomId}`;
-    const gameMode = data.settings.gameMode || 'multiplayer'; // Default to multiplayer
-    const settings = { maxPlayers: data.settings.maxPlayers || 2, gameMode };
-    rooms[roomId] = {
-      name: roomName,
-      settings,
-      player1: null,
-      player2: null,
-      hp: { player1: 100, player2: 100 },
-      givenWord: getRandomWord(),
-      usedWords: { player1: new Set(), player2: new Set() }
-    };
+    const randomWord = getRandomWord();
+    const { roomId, roomName, gameMode } = createRoom(socket, data, randomWord);
     socket.emit('roomCreated', { roomId, roomName, gameMode });
     io.emit('roomListUpdated');
+  });
+
+  socket.on('deleteRoom', (roomId) => {
+    if (deleteRoom(socket, roomId, io)) {
+        io.emit('roomListUpdated');
+      } else {
+        socket.emit('deleteRoomFailed', { message: 'Only the room creator can delete the room' });
+      }
   });
   
   // Join a room
   socket.on('joinRoom', (roomId) => {
-    if (rooms[roomId]) {
-      if (!rooms[roomId].player1) {
-        rooms[roomId].player1 = socket.id;
-        socket.playerPosition = 'player1';
-      } else if (!rooms[roomId].player2) {
-        rooms[roomId].player2 = socket.id;
-        socket.playerPosition = 'player2';
+    console.log(`${socket.playerId} wants to join room ${roomId}`);
+    if (!rooms[roomId]) {
+        rooms[roomId] = { player1: null, player2: null };
+      }
+    
+      const room = rooms[roomId];
+      if (!room.player1) {
+        room.player1 = socket.playerId;
+        socket.join(roomId);
+        socket.roomId = roomId; // Store roomId on socket
+        socket.playerPosition = 'player1'; // Store position on socket
+        socket.emit('joinedRoom', { roomId, position: 'player1' });
+      } else if (!room.player2) {
+        room.player2 = socket.playerId;
+        socket.join(roomId);
+        socket.roomId = roomId; // Store roomId on socket
+        socket.playerPosition = 'player2'; // Store position on socket
+        socket.emit('joinedRoom', { roomId, position: 'player2' });
+        // Both players are here, start the game
+        io.to(roomId).emit('startGame', { message: 'Game on!' });
       } else {
         socket.emit('roomFull', { message: 'Room is full' });
-        return;
-      }
-      socket.join(roomId);
-      socket.roomId = roomId;
-      socket.emit('joinedRoom', { roomId, roomName: rooms[roomId].name });
-      if (rooms[roomId].player1 && rooms[roomId].player2) {
-        io.to(roomId).emit('gameData', { givenWord: rooms[roomId].givenWord });
-        setTimeout(() => io.to(roomId).emit('startGame', { message: 'Game starting!' }), 500);
-      }
-    } else {
-      socket.emit('roomNotFound', { message: 'Room does not exist' });
     }
   });
 
   // Send room list
   socket.on('getRoomList', () => {
     const roomList = Object.entries(rooms).map(([id, room]) => {
-      // Count connected players by filtering non-null player slots
       const connectedPlayers = [room.player1, room.player2].filter(player => player !== null).length;
       return {
         id,
         name: room.name,
         players: connectedPlayers,
         maxPlayers: room.settings.maxPlayers,
-        status: connectedPlayers < room.settings.maxPlayers ? 'Open' : 'Full'
+        status: connectedPlayers < room.settings.maxPlayers ? 'Open' : 'Full',
+        isCreator: room.creator === socket.playerId // Use playerId
       };
     });
     socket.emit('roomList', roomList);
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
+    console.log(`Player ${socket.playerId} disconnected`);
+    delete playerSockets[socket.playerId]; // Clean up
+
     const roomId = socket.roomId;
     if (roomId && rooms[roomId]) {
-      if (rooms[roomId].player1 === socket.id) {
+      if (rooms[roomId].player1 === socket.playerId) {
         rooms[roomId].player1 = null;
-      } else if (rooms[roomId].player2 === socket.id) {
+      } else if (rooms[roomId].player2 === socket.playerId) {
         rooms[roomId].player2 = null;
       }
       // Store disconnected player info
-      disconnectedPlayers[socket.id] = { 
+      disconnectedPlayers[socket.playerId] = { 
         roomId, 
         timestamp: Date.now(), 
         position: socket.playerPosition 
       };
       setTimeout(() => {
-        if (disconnectedPlayers[socket.id]) {
-          delete disconnectedPlayers[socket.id];
+        if (disconnectedPlayers[socket.playerId]) {
+          delete disconnectedPlayers[socket.playerId];
           if (rooms[roomId] && (!rooms[roomId].player1 || !rooms[roomId].player2)) {
             io.to(roomId).emit('gameAbandoned', { message: 'Opponent did not reconnect in time.' });
           }
@@ -164,6 +175,44 @@ io.on('connection', (socket) => {
       if (!rooms[roomId].player1 || !rooms[roomId].player2) {
         io.to(roomId).emit('playerDisconnected', { message: 'Opponent disconnected, waiting for reconnection...' });
       }
+    }
+  });
+
+  socket.on('joinRoom', (roomId) => {
+    console.log(`${socket.playerId} wants to join room ${roomId}`);
+    if (!rooms[roomId]) {
+      socket.emit('roomNotFound', { message: 'Room does not exist' });
+      return;
+    }
+  
+    const room = rooms[roomId];
+    if (room.creator === socket.playerId) {
+      // Creator is rejoining; acknowledge their presence without assigning a new slot
+      socket.join(roomId);
+      socket.roomId = roomId;
+      socket.emit('joinedRoom', { roomId, position: 'creator' });
+      return;
+    }
+  
+    if (!room.player1) {
+      room.player1 = socket.playerId;
+      socket.join(roomId);
+      socket.roomId = roomId;
+      socket.playerPosition = 'player1';
+      socket.emit('joinedRoom', { roomId, position: 'player1' });
+    } else if (!room.player2) {
+      room.player2 = socket.playerId;
+      socket.join(roomId);
+      socket.roomId = roomId;
+      socket.playerPosition = 'player2';
+      socket.emit('joinedRoom', { roomId, position: 'player2' });
+      // Both players are here, start the game
+      if (room.player1 && room.player2) {
+        io.to(roomId).emit('gameData', { givenWord: room.givenWord });
+        setTimeout(() => io.to(roomId).emit('startGame', { message: 'Game starting!' }), 500);
+      }
+    } else {
+      socket.emit('roomFull', { message: 'Room is full' });
     }
   });
   
@@ -197,11 +246,24 @@ io.on('connection', (socket) => {
         // Send word result to player
         socket.emit('wordResult', { valid: true, word, damage, increaseMultiplier: true });
         
+        // Find the opponent socket
+        const opponentId = socket.playerPosition === 'player1' ? rooms[roomId].player2 : rooms[roomId].player1;
+        const opponentSocket = playerSockets[opponentId];
+
+        if (opponentSocket) {
+          // Send the fireball data to the opponent
+          opponentSocket.emit('opponentWordSuccess', { 
+            damage: damage,
+            word: word
+          });
+        }
+        
         // Store pending damage in temporary variable
         if (!rooms[roomId].pendingDamage) {
           rooms[roomId].pendingDamage = {};
         }
-        rooms[roomId].pendingDamage[socket.id] = {
+        
+        rooms[roomId].pendingDamage[socket.playerId] = {
           damage: damage,
           opponentPos: position === 'player1' ? 'player2' : 'player1'
         };
@@ -214,34 +276,45 @@ io.on('connection', (socket) => {
   });
 
   // Add new handler for hit confirmation
-  socket.on('fireballHit', () => {
+  socket.on('fireballHit', (data) => {
     const roomId = socket.roomId;
-    if (!roomId || !rooms[roomId] || !rooms[roomId].pendingDamage || !rooms[roomId].pendingDamage[socket.id]) return;
+    if (!roomId || !rooms[roomId]) return;
     
-    // Apply the pending damage
-    const pendingInfo = rooms[roomId].pendingDamage[socket.id];
-    const opponentPos = pendingInfo.opponentPos;
-    const damage = pendingInfo.damage;
+    const room = rooms[roomId];
     
-    // Now apply the damage
-    rooms[roomId].hp[opponentPos] = Math.max(0, rooms[roomId].hp[opponentPos] - damage);
+    // Update HP values in the room state
+    if (!room.hp) {
+      room.hp = { player1: 100, player2: 100 };
+    }
     
-    // Clean up the pending damage
-    delete rooms[roomId].pendingDamage[socket.id];
+    if (data.targetIsPlayer) {
+      // The player was hit
+      if (socket.playerPosition === 'player1') {
+        room.hp.player1 = Math.max(0, room.hp.player1 - data.damage);
+      } else {
+        room.hp.player2 = Math.max(0, room.hp.player2 - data.damage);
+      }
+    } else {
+      // The opponent was hit
+      if (socket.playerPosition === 'player1') {
+        room.hp.player2 = Math.max(0, room.hp.player2 - data.damage);
+      } else {
+        room.hp.player1 = Math.max(0, room.hp.player1 - data.damage);
+      }
+    }
     
     // Send updated HP to both players
-    const player1HP = rooms[roomId].hp.player1;
-    const player2HP = rooms[roomId].hp.player2;
-    io.to(rooms[roomId].player1).emit('updateHP', { yourHP: player1HP, opponentHP: player2HP });
-    io.to(rooms[roomId].player2).emit('updateHP', { yourHP: player2HP, opponentHP: player1HP });
+    io.to(roomId).emit('updateHP', {
+      hp: room.hp
+    });
     
-    // Check if game is over
-    if (player1HP <= 0 || player2HP <= 0) {
-        io.to(roomId).emit('gameEnded', { winner: player1HP <= 0 ? rooms[roomId].player2 : rooms[roomId].player1 });
+    // Check for game end
+    if (room.hp.player1 <= 0 || room.hp.player2 <= 0) {
+      const winner = room.hp.player1 <= 0 ? room.player2 : room.player1;
+      io.to(roomId).emit('gameEnded', { winner });
     }
   });
 
-  // Add to socket events in server.js
   socket.on('wordSuccess', (data) => {
     const roomId = socket.roomId;
     if (!roomId || !rooms[roomId]) return;
@@ -329,14 +402,14 @@ io.on('connection', (socket) => {
   });
 
   socket.on('reconnectToRoom', (roomId) => {
-    const dp = Object.values(disconnectedPlayers).find(dp => dp.roomId === roomId && dp.position);
+    const dp = Object.values(disconnectedPlayers).find(dp => dp.roomId === roomId);
     if (dp) {
-      rooms[roomId][dp.position] = socket.id;
+      rooms[roomId][dp.position] = socket.playerId;
       socket.playerPosition = dp.position;
       socket.join(roomId);
       socket.roomId = roomId;
-      socket.emit('joinedRoom', { roomId: roomId });
-      delete disconnectedPlayers[socket.id];
+      socket.emit('joinedRoom', { roomId: roomId, position: dp.position });
+      delete disconnectedPlayers[socket.playerId];
       if (rooms[roomId].player1 && rooms[roomId].player2) {
         io.to(roomId).emit('playerReconnected', { message: 'Opponent has reconnected!' });
         io.to(roomId).emit('resumeGame', { message: 'Game resuming!' });

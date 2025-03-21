@@ -38,8 +38,8 @@ class CountdownScene extends Phaser.Scene {
           this.countdownText.setText('GO!');
           clearInterval(countdownInterval);
           setTimeout(() => {
-            this.scene.start('GameScene');
             this.scene.stop('CountdownScene');
+            this.scene.start('GameScene');
           }, 500);
         }
       }, 1000);
