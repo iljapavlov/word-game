@@ -48,6 +48,7 @@ initLayoutValues() {
   preload() {
       this.load.image('background', 'assets/background.png');
       this.load.image('castle_100', 'assets/castle_100.png');
+      this.load.image('homeButton', 'assets/home-button.png'); // Add home button asset
       // this.load.image('castle_75', 'assets/castle_75.png');
       // this.load.image('castle_50', 'assets/castle_50.png');
       // this.load.image('castle_25', 'assets/castle_25.png');
@@ -66,6 +67,7 @@ initLayoutValues() {
       this.createCastles();
       this.createHPBars();
       this.createGameUI();
+      this.createHomeButton(); // Add home button
       
       // Initialize game state - Get HP values from server if available
       this.initGameState();
@@ -753,6 +755,67 @@ fireballHit(fireball) {
           window.socket.emit('restartGame');
       });
   }
+
+    createHomeButton() {
+        // Add home button in the top-left corner
+        this.homeButton = this.add.image(40, 40, 'homeButton')
+            .setOrigin(0.5)
+            .setScale(0.6)
+            .setInteractive()
+            .setDepth(10)
+            .on('pointerdown', () => {
+                this.returnToLobby();
+            });
+            
+        // Add hover effect
+        this.homeButton.on('pointerover', () => {
+            this.homeButton.setScale(0.7);
+        });
+        
+        this.homeButton.on('pointerout', () => {
+            this.homeButton.setScale(0.6);
+        });
+    }
+
+    setupBrowserBackButton() {
+        // Handle browser back button
+        window.onpopstate = () => {
+            this.returnToLobby();
+        };
+    }
+
+    returnToLobby() {
+        // Clean up event listeners
+        this.input.keyboard.removeAllListeners();
+        window.socket.off('gameData');
+        window.socket.off('playerDisconnected');
+        window.socket.off('playerReconnected');
+        window.socket.off('resumeGame');
+        window.socket.off('gameAbandoned');
+        window.socket.off('wordResult');
+        window.socket.off('updateHP');
+        window.socket.off('gameEnded');
+        window.socket.off('gameState');
+        window.socket.off('gameRestarted');
+        window.socket.off('opponentWordSuccess');
+        
+        // Remove room ID from URL
+        if (window.history && window.history.pushState) {
+            window.history.pushState("", document.title, window.location.pathname);
+        }
+        
+        // Return to lobby
+        this.scene.start('MenuScene');
+        this.scene.stop('GameScene');
+    }
+
+    shutdown() {
+        // Clean up browser back button handler
+        window.onpopstate = null;
+        
+        // Clean up all event listeners
+        this.input.keyboard.removeAllListeners();
+    }
 
   cleanupSocketListeners() {
       window.socket.off('gameData');
