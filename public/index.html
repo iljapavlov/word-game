@@ -5,6 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Multiplayer Word Game</title>
   <style>
+    @font-face {
+      font-family: 'Daydream';
+      src: url('assets/Minecraft.ttf') format('truetype');
+      font-weight: normal;
+      font-style: normal;
+    }
+  
+    /* Force font to load */
+    .hiddenFontLoader {
+      font-family: 'Daydream';
+      position: absolute;
+      left: -1000px;
+      visibility: hidden;
+    }
+
     html, body {
       margin: 0;
       padding: 0;
@@ -30,6 +45,7 @@
   <script src="js/GameScene.js"></script>
 </head>
 <body>
+  <div class="hiddenFontLoader">.</div>
   <div id="game-container"></div>
 
   <script>
