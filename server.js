@@ -190,7 +190,7 @@ io.on('connection', (socket) => {
       // Creator is rejoining; acknowledge their presence without assigning a new slot
       socket.join(roomId);
       socket.roomId = roomId;
-      socket.emit('joinedRoom', { roomId, position: 'creator' });
+      // socket.emit('joinedRoom', { roomId, position: 'creator' });
       return;
     }
   
@@ -206,6 +206,7 @@ io.on('connection', (socket) => {
       socket.roomId = roomId;
       socket.playerPosition = 'player2';
       socket.emit('joinedRoom', { roomId, position: 'player2' });
+
       // Both players are here, start the game
       if (room.player1 && room.player2) {
         io.to(roomId).emit('gameData', { givenWord: room.givenWord });

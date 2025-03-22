@@ -46,14 +46,12 @@ class MenuScene extends Phaser.Scene {
     this.load.image('menuBg', 'assets/bg2.jpg');
     this.load.image('deleteIcon', 'assets/delete-icon.png');
     this.load.audio('clickSound', 'assets/click.mp3');
-
-    this.createPixelParticleTextures();
   }
 
   create() {
     this.initializeVariables();
     this.setupBackgroundElements();
-    this.createSakuraParticles();
+    this.particleManager = new ParticleManager(this);
     this.createUI();
     this.setupEventListeners();
   }
@@ -204,6 +202,8 @@ class MenuScene extends Phaser.Scene {
     
     // Handle joining room
     window.socket.on('joinedRoom', (data) => {
+      window.socket.playerPosition = data.position;
+      console.log('Joined room as:', window.socket.playerPosition);
       this.scene.start('WaitingScene', { roomId: data.roomId });
       this.scene.stop('MenuScene');
     });
@@ -216,98 +216,6 @@ class MenuScene extends Phaser.Scene {
       },
       loop: true
      });
-  }
-
-  createSakuraParticles() {
-    // Create an array to hold multiple particle emitters
-    this.sakuraEmitters = [];
-    
-    // Array of available textures
-    const textures = ['pixelSakura1', 'pixelSakura2', 'pixelSakura3'];
-    
-    textures.forEach((texture) => {
-      const emitter = this.add.particles(texture).createEmitter({
-        x: { min: 0, max: this.width },
-        y: 0,
-        alpha: { min: .7, max: 1 },
-        lifespan: 8000,
-        speedX: { min: -20, max: 20 },      // Random horizontal speed for wind
-        speedY: { min: 20, max: 40 },      // Slower vertical speed
-        accelerationY: 7,                 // Small gravitational pull
-        angle: { min: 0, max: 360 },       // Initial random orientation
-        rotate: { min: -0.5, max: 0.5 },   // Slow rotation for wandering
-        scale: { start: 2.5, end: 1.5 },
-        quantity: .2,
-        blendMode: 'OVERLAY',
-        frequency: 200,
-        emitZone: { type: 'random', source: new Phaser.Geom.Rectangle(0, 0, this.width, 1) }
-      });
-      this.sakuraEmitters.push(emitter);
-    });
-  
-    // Ensure particles don't block interaction
-    this.input.setTopOnly(true);
-  }
-  
-  createPixelParticleTextures() {
-    // Base colors for the particles with slight variations
-    const baseColors = [
-      0xffb7c5,  // Light pink
-      0xff9eb5,  // Medium pink
-      0xffc0cb   // Pink
-    ];
-    
-    // Create 3 different petal designs
-    for (let i = 1; i <= 3; i++) {
-      // Create a graphics object to draw our particle
-      const graphics = this.make.graphics();
-      
-      // Choose base color for this particle
-      const baseColor = baseColors[i-1];
-      
-      // Create different petal shapes based on index
-      if (i === 1) {
-        // Simple 5-pixel floral shape
-        graphics.fillStyle(baseColor);
-        graphics.fillRect(2, 0, 4, 2);  // top
-        graphics.fillRect(0, 2, 2, 4);  // left
-        graphics.fillRect(6, 2, 2, 4);  // right
-        graphics.fillRect(2, 6, 4, 2);  // bottom
-        
-        // Center pixel with slight color variation
-        graphics.fillStyle(baseColor + 0x111111);
-        graphics.fillRect(2, 2, 4, 4);
-      } 
-      else if (i === 2) {
-        // Diamond shape
-        graphics.fillStyle(baseColor);
-        graphics.fillRect(3, 0, 2, 2);  // top
-        graphics.fillRect(0, 3, 2, 2);  // left
-        graphics.fillRect(6, 3, 2, 2);  // right
-        graphics.fillRect(3, 6, 2, 2);  // bottom
-        
-        // Corner fills
-        graphics.fillStyle(baseColor - 0x111111);
-        graphics.fillRect(2, 2, 2, 2);  // top-left
-        graphics.fillRect(4, 2, 2, 2);  // top-right
-        graphics.fillRect(2, 4, 2, 2);  // bottom-left
-        graphics.fillRect(4, 4, 2, 2);  // bottom-right
-      }
-      else {
-        // Small cross shape
-        graphics.fillStyle(baseColor);
-        graphics.fillRect(3, 1, 2, 6);  // vertical
-        graphics.fillRect(1, 3, 6, 2);  // horizontal
-        
-        // Add highlight
-        graphics.fillStyle(baseColor + 0x222222);
-        graphics.fillRect(3, 3, 2, 2);  // center
-      }
-      
-      // Generate texture from the graphics
-      graphics.generateTexture('pixelSakura' + i, 8, 8);
-      graphics.destroy();
-    }
   }
 
   updateRoomList(roomList) {
@@ -342,8 +250,8 @@ class MenuScene extends Phaser.Scene {
   }
 
   shutdown() {
-    if (this.sakuraEmitters) {
-      this.sakuraEmitters.forEach(emitter => emitter.stop());
+    if (this.particleManager) {
+      this.particleManager.stop();
     }
 
     if (this.roomListRefreshTimer) {

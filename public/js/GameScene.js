@@ -24,7 +24,7 @@ class GameScene extends Phaser.Scene {
     this.castleXOffsetFraction = 0.4;
     this.castleSizeFraction = 0.25;
     this.hpBarWidthFraction = 0.15;
-    this.hpBarHeightFraction = 0.02;
+    this.hpBarHeightFraction = 0.015;
   }
 
 initLayoutValues() {
@@ -49,14 +49,17 @@ initLayoutValues() {
       this.load.image('background', 'assets/bg2.jpg');
       this.load.image('castle_100', 'assets/castle_100.png');
       this.load.image('homeButton', 'assets/home-button.png');
+      this.load.image('wordBackground', 'assets/word-bg.png');
 
       // sounds
       this.load.audio('fireballSound', 'assets/fireball.mp3');
       this.load.audio('hitSound', 'assets/hit.mp3');
+      this.load.audio('keySound', 'assets/key.mp3');
       // this.load.audio('backgroundMusic', 'assets/background-music.mp3');
   }
 
   create() {
+      console.log('My playerPosition:', window.socket.playerPosition);
       // Enable physics
       this.physics.world.setBounds(0, 0, this.baseWidth, this.baseHeight);
     
@@ -70,9 +73,12 @@ initLayoutValues() {
       this.createGameUI();
       this.createHomeButton();
 
+      this.particleManager = new ParticleManager(this); 
+
       // Initialize sounds
       this.fireballSound = this.sound.add('fireballSound');
       this.hitSound = this.sound.add('hitSound');
+      this.keySound = this.sound.add('keySound', { volume: 0.5 });
       // this.backgroundMusic = this.sound.add('backgroundMusic', {
       //     loop: true,
       //     volume: 0.5
@@ -137,7 +143,7 @@ initLayoutValues() {
   }
   
   createHPBars() {
-      const fontSize = 18;
+      const fontSize = 22;
       
       // Player HP bar
       this.playerHPBar = this.add.graphics().setDepth(2);
@@ -145,7 +151,13 @@ initLayoutValues() {
           this.playerHPBarX + this.hpBarWidth / 2, 
           this.hpBarYOffset - this.hpBarHeight - 5, 
           '100', 
-          { fontSize: fontSize + 'px', fill: '#fff' }
+          { 
+            fontSize: fontSize + 'px', 
+            fill: '#fff',
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 2
+        }
       ).setOrigin(0.5).setDepth(2);
       
       // Opponent HP bar
@@ -154,7 +166,13 @@ initLayoutValues() {
           this.opponentHPBarX + this.hpBarWidth / 2, 
           this.hpBarYOffset - this.hpBarHeight - 5, 
           '100', 
-          { fontSize: fontSize + 'px', fill: '#fff' }
+          { 
+            fontSize: fontSize + 'px', 
+            fill: '#fff',
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 2
+        }
       ).setOrigin(0.5).setDepth(2);
       
       // Initial render of HP bars
@@ -163,21 +181,32 @@ initLayoutValues() {
   }
   
   createGameUI() {
-      // Main word text (make it bold)
+      // Main word
+      this.wordBackground = this.add.image(
+        this.screenWidth * 0.5,
+        this.screenHeight * 0.15,
+        'wordBackground'
+    ).setOrigin(0.5).setDepth(2).setDisplaySize(this.screenWidth * 0.9, 150);
+
       this.wordText = this.add.text(
           this.screenWidth * 0.5, 
           this.screenHeight * 0.15, 
           'Waiting for word...', 
-          { fontSize: '50px', fill: '#fff', fontStyle: 'bold' }
+          { fontSize: '50px', fill: '#000', fontStyle: 'bold', letterSpacing:8 }
       ).setOrigin(0.5).setDepth(3);
       
       // Input text display
       this.inputText = this.add.text(
-          this.screenWidth * 0.5, 
-          this.screenHeight * 0.3, 
-          '', 
-          { fontSize: '32px', fill: '#fff' }
-      ).setOrigin(0.5).setDepth(3);
+        this.screenWidth * 0.5, 
+        this.screenHeight * 0.3, 
+        '', 
+        { 
+            fontSize: '40px', 
+            fill: '#fff',
+            stroke: '#000',
+            strokeThickness: 3
+        }
+    ).setOrigin(0.5).setDepth(3);
       
       // Damage text
       this.damageText = this.add.text(
@@ -189,11 +218,17 @@ initLayoutValues() {
       
       // Multiplier display (initially hidden since multiplier starts at 1)
       this.multiplierText = this.add.text(
-          this.screenWidth * 0.5, 
-          this.screenHeight * 0.32, 
-          'Multiplier: x1.0', 
-          { fontSize: '20px', fill: '#fff' }
-      ).setOrigin(0.5).setDepth(3).setVisible(false);
+        this.screenWidth * 0.5, 
+        this.screenHeight * 0.32, 
+        'Multiplier: x1.0', 
+        { 
+            fontSize: '20px', 
+            fill: '#fff',
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 3
+        }
+    ).setOrigin(0.5).setDepth(3).setVisible(false);
       
       // Game results (hidden initially)
       this.resultText = this.add.text(
@@ -450,21 +485,29 @@ initLayoutValues() {
   }
 
   updateMultiplierDisplay() {
-      const formattedMultiplier = this.multiplier.toFixed(1);
-      
-      // Only show multiplier when it's greater than 1
-      if (this.multiplier > 1.0) {
-          this.multiplierText.setText(`Multiplier: x${formattedMultiplier}`);
-          this.multiplierText.setVisible(true);
-          
-          if (this.multiplier > 2.0) {
-              this.multiplierText.setColor('#ff9900'); // Orange for high multiplier
-          } else {
-              this.multiplierText.setColor('#00ff00'); // Green for increased multiplier
-          }
-      } else {
-          this.multiplierText.setVisible(false);
-      }
+    const formattedMultiplier = this.multiplier.toFixed(3);
+    
+    // Only show multiplier when it's greater than 1
+    if (this.multiplier > 1.0) {
+        this.multiplierText.setText(`X${formattedMultiplier}`);
+        this.multiplierText.setVisible(true);
+        
+        // Scale based on multiplier value (1.0 to 2.0+ range)
+        const baseScale = 1.0;
+        const scaleIncrease = Math.min(1.0, (this.multiplier - 1.0)); // Cap at 2x size
+        const newScale = baseScale + scaleIncrease;
+        this.multiplierText.setScale(newScale);
+        
+        if (this.multiplier > 2.0) {
+            this.multiplierText.setColor('#ff9900'); // Orange for high multiplier
+            this.multiplierText.setStroke('#000', 4); // Thicker stroke for high multiplier
+        } else {
+            this.multiplierText.setColor('#00ff00'); // Green for increased multiplier
+            this.multiplierText.setStroke('#000', 3); // Normal stroke
+        }
+    } else {
+        this.multiplierText.setVisible(false);
+    }
   }
 
   updatePlayerHPBar() {
@@ -518,42 +561,43 @@ initLayoutValues() {
   }
 
   handleKeyDown(event) {
-      if (event.key === 'Enter') {
-          if (this.playerInput) {
-              const submittedWord = this.playerInput.trim().toLowerCase();
-              if (submittedWord.length < 3) {
-                  this.damageText.setText('Слово должно быть не менее 3 букв');
-                  this.damageText.setColor('#ff0000');
-                  this.multiplier = 1.0;
-                  this.updateMultiplierDisplay();
-              } else if (submittedWord === this.givenWord.toLowerCase()) {
-                  this.damageText.setText('Нельзя использовать исходное слово');
-                  this.damageText.setColor('#ff0000');
-                  this.multiplier = 1.0;
-                  this.updateMultiplierDisplay();
-              } else if (this.submittedWords.has(submittedWord.toLowerCase())) {
-                  this.damageText.setText('Это слово уже использовано');
-                  this.damageText.setColor('#ff0000');
-                  this.multiplier = 1.0;
-                  this.updateMultiplierDisplay();
-              } else {
-                  window.socket.emit('submitWord', { 
-                      word: submittedWord,
-                      multiplier: this.multiplier
-                  });
-                  this.submittedWords.add(submittedWord);
-              }
-              this.playerInput = '';
-              this.inputText.setText('');
-          }
-      } else if (event.key === 'Backspace') {
-          this.playerInput = this.playerInput.slice(0, -1);
-          this.inputText.setText(this.playerInput);
-      } else if (event.key.length === 1) {
-          this.playerInput += event.key;
-          this.inputText.setText(this.playerInput);
-      }
+    this.keySound.play();
+    if (event.key === 'Enter') {
+        if (this.playerInput) {
+            const submittedWord = this.playerInput.trim().toLowerCase();
+            if (submittedWord.length < 3) {
+                this.damageText.setText('Слово должно быть не менее 3 букв');
+                this.damageText.setColor('#ff0000');
+                this.multiplier = 1.0;
+                this.updateMultiplierDisplay();
+            } else if (submittedWord === this.givenWord.toLowerCase()) {
+                this.damageText.setText('Нельзя использовать исходное слово');
+                this.damageText.setColor('#ff0000');
+                this.multiplier = 1.0;
+                this.updateMultiplierDisplay();
+            } else if (this.submittedWords.has(submittedWord.toLowerCase())) {
+                this.damageText.setText('Это слово уже использовано');
+                this.damageText.setColor('#ff0000');
+                this.multiplier = 1.0;
+                this.updateMultiplierDisplay();
+            } else {
+                window.socket.emit('submitWord', { 
+                    word: submittedWord,
+                    multiplier: this.multiplier
+                });
+                this.submittedWords.add(submittedWord);
+            }
+            this.playerInput = '';
+            this.inputText.setText('');
+        }
+    } else if (event.key === 'Backspace') {
+        this.playerInput = this.playerInput.slice(0, -1);
+        this.inputText.setText(this.playerInput);
+    } else if (event.key.length === 1) {
+        this.playerInput += event.key;
+        this.inputText.setText(this.playerInput);
     }
+  }
 
 createFireball(config) {
     // Default values
@@ -716,35 +760,12 @@ addTrailParticle(fireball) {
 }
 
 fireballHit(fireball) {
-  // Play hit sound
   this.fireballSound.stop();
   this.hitSound.play();
 
-  // Show damage number at hit location
   const damageText = this.add.text(fireball.x, fireball.y, '-' + fireball.damage, 
       { fontSize: '48px', fontStyle: 'bold', fill: '#ff0000' }).setOrigin(0.5).setDepth(6);
-  
-  // Add screen shake effect based on damage
   this.cameras.main.shake(200, 0.005 * fireball.damage);
-  
-  // Update the appropriate HP value locally
-  if (fireball.targetCastle === this.playerCastle) {
-    this.playerHP = Math.max(0, this.playerHP - fireball.damage);
-    this.updatePlayerHPBar();
-    
-    // Check for game end
-    if (this.playerHP <= 0 && !this.gameEnded) {
-      this.endGame();
-    }
-  } else {
-    this.opponentHP = Math.max(0, this.opponentHP - fireball.damage);
-    this.updateOpponentHPBar();
-    
-    // Check for game end
-    if (this.opponentHP <= 0 && !this.gameEnded) {
-      this.endGame();
-    }
-  }
 
   // Notify server that fireball has hit
   window.socket.emit('fireballHit', {
@@ -762,10 +783,7 @@ fireballHit(fireball) {
       onComplete: function() { damageText.destroy(); }
   });
   
-  // Clean up trail
   fireball.trail.forEach(p => p.destroy());
-  
-  // Destroy fireball
   fireball.destroy();
 }
 
@@ -881,6 +899,10 @@ fireballHit(fireball) {
       this.cleanupSocketListeners();
       window.onpopstate = null;
       this.input.keyboard.removeAllListeners();
+
+      if (this.particleManager) {
+        this.particleManager.stop();
+      }
 
       // Stop the music when leaving the scene
       if (this.backgroundMusic && this.backgroundMusic.isPlaying) {
