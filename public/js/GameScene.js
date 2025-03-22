@@ -55,7 +55,7 @@ initLayoutValues() {
       this.load.audio('fireballSound', 'assets/fireball.mp3');
       this.load.audio('hitSound', 'assets/hit.mp3');
       this.load.audio('keySound', 'assets/key.mp3');
-      // this.load.audio('backgroundMusic', 'assets/background-music.mp3');
+      this.load.audio('backgroundMusic', 'assets/background-music.mp3');
   }
 
   create() {
@@ -79,13 +79,13 @@ initLayoutValues() {
       this.fireballSound = this.sound.add('fireballSound');
       this.hitSound = this.sound.add('hitSound');
       this.keySound = this.sound.add('keySound', { volume: 0.5 });
-      // this.backgroundMusic = this.sound.add('backgroundMusic', {
-      //     loop: true,
-      //     volume: 0.5
-      // });
+      this.backgroundMusic = this.sound.add('backgroundMusic', {
+          loop: true,
+          volume: 0.5
+      });
       
-      // // Start background music
-      // this.backgroundMusic.play();
+      // Start background music
+      this.backgroundMusic.play();
     
       // Initialize game state - Get HP values from server if available
       this.initGameState();
