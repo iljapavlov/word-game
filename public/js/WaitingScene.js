@@ -18,21 +18,13 @@ class WaitingScene extends Phaser.Scene {
       // Add home button in the top-left corner
       this.homeButton = this.add.image(40, 40, 'homeButton')
         .setOrigin(0.5)
-        .setScale(0.6)
+        .setScale(0.2) // Changed from 0.6 to 0.2 (3x smaller)
         .setInteractive()
         .on('pointerdown', () => {
-          this.clickSound.play();
-          this.returnToLobby();
-        });
-        
-      // Add hover effect
-      this.homeButton.on('pointerover', () => {
-        this.homeButton.setScale(0.7);
+            this.clickSound.play();
+            this.returnToLobby();
       });
-      
-      this.homeButton.on('pointerout', () => {
-        this.homeButton.setScale(0.6);
-      });
+      addHoverEffect(this, this.homeButton)
 
       this.waitingText = this.add.text(
         this.cameras.main.width / 2, 
@@ -73,14 +65,21 @@ class WaitingScene extends Phaser.Scene {
       // Tell server we're leaving the room
       window.socket.emit('returnToLobby');
       
+      // Stop ALL scenes except the one we're going to
+      const sceneKeys = ['GameScene', 'WaitingScene', 'CountdownScene'];
+      sceneKeys.forEach(key => {
+          if (this.scene.isActive(key)) {
+              this.scene.stop(key);
+          }
+      });
+      
       // Remove room ID from URL
       if (window.history && window.history.pushState) {
-        window.history.pushState("", document.title, window.location.pathname);
+          window.history.pushState("", document.title, window.location.pathname);
       }
       
       // Return to lobby
       this.scene.start('MenuScene');
-      this.scene.stop('WaitingScene');
     }
     
     shutdown() {

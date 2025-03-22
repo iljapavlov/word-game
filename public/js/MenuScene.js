@@ -207,6 +207,15 @@ class MenuScene extends Phaser.Scene {
       this.scene.start('WaitingScene', { roomId: data.roomId });
       this.scene.stop('MenuScene');
     });
+
+    // Set up auto-refresh for room list every 3 seconds
+    this.roomListRefreshTimer = this.time.addEvent({
+      delay: 3000,
+      callback: () => {
+          window.socket.emit('getRoomList');
+      },
+      loop: true
+     });
   }
 
   createSakuraParticles() {
@@ -336,6 +345,10 @@ class MenuScene extends Phaser.Scene {
     if (this.sakuraEmitters) {
       this.sakuraEmitters.forEach(emitter => emitter.stop());
     }
+
+    if (this.roomListRefreshTimer) {
+      this.roomListRefreshTimer.remove();
+    } 
     
     this.children.removeAll();
     window.socket.off('roomList');

@@ -46,13 +46,14 @@ initLayoutValues() {
 }
 
   preload() {
-      this.load.image('background', 'assets/background.png');
+      this.load.image('background', 'assets/bg2.jpg');
       this.load.image('castle_100', 'assets/castle_100.png');
-      this.load.image('homeButton', 'assets/home-button.png'); // Add home button asset
-      // this.load.image('castle_75', 'assets/castle_75.png');
-      // this.load.image('castle_50', 'assets/castle_50.png');
-      // this.load.image('castle_25', 'assets/castle_25.png');
-      // this.load.image('castle_0', 'assets/castle_0.png');
+      this.load.image('homeButton', 'assets/home-button.png');
+
+      // sounds
+      this.load.audio('fireballSound', 'assets/fireball.mp3');
+      this.load.audio('hitSound', 'assets/hit.mp3');
+      // this.load.audio('backgroundMusic', 'assets/background-music.mp3');
   }
 
   create() {
@@ -67,8 +68,19 @@ initLayoutValues() {
       this.createCastles();
       this.createHPBars();
       this.createGameUI();
-      this.createHomeButton(); // Add home button
+      this.createHomeButton();
+
+      // Initialize sounds
+      this.fireballSound = this.sound.add('fireballSound');
+      this.hitSound = this.sound.add('hitSound');
+      // this.backgroundMusic = this.sound.add('backgroundMusic', {
+      //     loop: true,
+      //     volume: 0.5
+      // });
       
+      // // Start background music
+      // this.backgroundMusic.play();
+    
       // Initialize game state - Get HP values from server if available
       this.initGameState();
       
@@ -558,6 +570,9 @@ createFireball(config) {
     const settings = { ...defaults, ...config };
     
     console.log('Creating fireball:', settings);
+
+    // Play fireball sound
+    this.fireballSound.play();
     
     // Create fireball as a circle with color based on damage
     const damageRatio = Math.min(1, Math.abs(settings.damage - 20) / 20);
@@ -701,6 +716,10 @@ addTrailParticle(fireball) {
 }
 
 fireballHit(fireball) {
+  // Play hit sound
+  this.fireballSound.stop();
+  this.hitSound.play();
+
   // Show damage number at hit location
   const damageText = this.add.text(fireball.x, fireball.y, '-' + fireball.damage, 
       { fontSize: '48px', fontStyle: 'bold', fill: '#ff0000' }).setOrigin(0.5).setDepth(6);
@@ -818,24 +837,15 @@ fireballHit(fireball) {
   }
 
     createHomeButton() {
-        // Add home button in the top-left corner
-        this.homeButton = this.add.image(40, 40, 'homeButton')
-            .setOrigin(0.5)
-            .setScale(0.6)
-            .setInteractive()
-            .setDepth(10)
-            .on('pointerdown', () => {
-                this.returnToLobby();
-            });
-            
-        // Add hover effect
-        this.homeButton.on('pointerover', () => {
-            this.homeButton.setScale(0.7);
-        });
-        
-        this.homeButton.on('pointerout', () => {
-            this.homeButton.setScale(0.6);
-        });
+      this.homeButton = this.add.image(40, 40, 'homeButton')
+      .setOrigin(0.5)
+      .setScale(0.2) // Changed from 0.6 to 0.2 (3x smaller)
+      .setInteractive()
+      .on('pointerdown', () => {
+          this.returnToLobby();
+      });
+      
+      addHoverEffect(this, this.homeButton)
     }
 
     setupBrowserBackButton() {
@@ -848,17 +858,15 @@ fireballHit(fireball) {
     returnToLobby() {
         // Clean up event listeners
         this.input.keyboard.removeAllListeners();
-        window.socket.off('gameData');
-        window.socket.off('playerDisconnected');
-        window.socket.off('playerReconnected');
-        window.socket.off('resumeGame');
-        window.socket.off('gameAbandoned');
-        window.socket.off('wordResult');
-        window.socket.off('updateHP');
-        window.socket.off('gameEnded');
-        window.socket.off('gameState');
-        window.socket.off('gameRestarted');
-        window.socket.off('opponentWordSuccess');
+        this.cleanupSocketListeners();
+        
+        // Stop ALL scenes except the one we're going to
+        const sceneKeys = ['GameScene', 'WaitingScene', 'CountdownScene'];
+        sceneKeys.forEach(key => {
+            if (this.scene.isActive(key)) {
+                this.scene.stop(key);
+            }
+        });
         
         // Remove room ID from URL
         if (window.history && window.history.pushState) {
@@ -867,26 +875,30 @@ fireballHit(fireball) {
         
         // Return to lobby
         this.scene.start('MenuScene');
-        this.scene.stop('GameScene');
     }
 
     shutdown() {
-        this.cleanupSocketListeners();
-        window.onpopstate = null;
-        this.input.keyboard.removeAllListeners();
+      this.cleanupSocketListeners();
+      window.onpopstate = null;
+      this.input.keyboard.removeAllListeners();
+
+      // Stop the music when leaving the scene
+      if (this.backgroundMusic && this.backgroundMusic.isPlaying) {
+        this.backgroundMusic.stop();
+      }
     }
 
   cleanupSocketListeners() {
-      window.socket.off('gameData');
-      window.socket.off('updateHP');
-      window.socket.off('wordResult');
-      window.socket.off('gameStats');
-      window.socket.off('gameRestarted');
-      window.socket.off('playerDisconnected');
-      window.socket.off('playerReconnected');
-      window.socket.off('resumeGame');
-      window.socket.off('gameAbandoned');
-      window.socket.off('gameState');
+        window.socket.off('gameData');
+        window.socket.off('updateHP');
+        window.socket.off('wordResult');
+        window.socket.off('gameStats');
+        window.socket.off('gameRestarted');
+        window.socket.off('playerDisconnected');
+        window.socket.off('playerReconnected');
+        window.socket.off('resumeGame');
+        window.socket.off('gameAbandoned');
+        window.socket.off('gameState');
   }
 
   displayGameStats(stats) {

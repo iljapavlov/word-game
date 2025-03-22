@@ -339,65 +339,66 @@ io.on('connection', (socket) => {
   socket.on('leaveRoom', () => {
     const roomId = socket.roomId;
     if (roomId && rooms[roomId]) {
-      // Remove player from room
-      if (rooms[roomId].player1 === socket.id) {
-        rooms[roomId].player1 = null;
-      } else if (rooms[roomId].player2 === socket.id) {
-        rooms[roomId].player2 = null;
-      }
-      
-      // Leave the socket.io room
-      socket.leave(roomId);
-      
-      // Notify other player if present
-      if (rooms[roomId].player1 || rooms[roomId].player2) {
-        io.to(roomId).emit('playerLeft', { message: 'Opponent has left the game.' });
-      }
-      
-      // Clean up empty rooms
-      if (!rooms[roomId].player1 && !rooms[roomId].player2) {
-        delete rooms[roomId];
-      }
-      
-      // Clear room ID from socket
-      socket.roomId = null;
-      socket.playerPosition = null;
-      
-      // Update room list for all clients
-      io.emit('roomListUpdated');
+        // Remove player from room
+        if (rooms[roomId].player1 === socket.playerId) {
+            rooms[roomId].player1 = null;
+        } else if (rooms[roomId].player2 === socket.playerId) {
+            rooms[roomId].player2 = null;
+        }
+        
+        // Leave the socket.io room
+        socket.leave(roomId);
+        
+        // Notify other player if present
+        if (rooms[roomId].player1 || rooms[roomId].player2) {
+            io.to(roomId).emit('playerLeft', { message: 'Opponent has left the game.' });
+        }
+        
+        // Clean up empty rooms
+        if (!rooms[roomId].player1 && !rooms[roomId].player2) {
+            delete rooms[roomId];
+            console.log(`Room ${roomId} deleted because it's empty`);
+        }
+        
+        // Clear room ID from socket
+        socket.roomId = null;
+        socket.playerPosition = null;
+        
+        // Update room list for all clients
+        io.emit('roomListUpdated');
     }
   });
 
-  // Add new handler for returning to lobby
   socket.on('returnToLobby', () => {
     const roomId = socket.roomId;
     if (roomId && rooms[roomId]) {
-      // Remove player from room
-      if (rooms[roomId].player1 === socket.id) {
-        rooms[roomId].player1 = null;
-      } else if (rooms[roomId].player2 === socket.id) {
-        rooms[roomId].player2 = null;
-      }
-      
-      // Leave the socket.io room
-      socket.leave(roomId);
-      
-      // Notify other player if present
-      if (rooms[roomId].player1 || rooms[roomId].player2) {
-        io.to(roomId).emit('playerLeft', { message: 'Opponent has left the game.' });
-      }
-      
-      // Clean up empty rooms
-      if (!rooms[roomId].player1 && !rooms[roomId].player2) {
-        delete rooms[roomId];
-      }
-      
-      // Clear room ID from socket
-      socket.roomId = null;
-      socket.playerPosition = null;
-      
-      // Update room list for all clients
-      io.emit('roomListUpdated');
+        // Remove player from room
+        if (rooms[roomId].player1 === socket.playerId) {
+            rooms[roomId].player1 = null;
+        } else if (rooms[roomId].player2 === socket.playerId) {
+            rooms[roomId].player2 = null;
+        }
+        
+        // Leave the socket.io room
+        socket.leave(roomId);
+        
+        // Notify other player if present
+        if (rooms[roomId].player1 || rooms[roomId].player2) {
+            io.to(roomId).emit('playerLeft', { message: 'Opponent has left the game.' });
+        }
+        
+        // Clean up empty rooms
+        if (!rooms[roomId].player1 && !rooms[roomId].player2) {
+            delete rooms[roomId];
+            console.log(`Room ${roomId} deleted because it's empty`);
+        }
+        
+        // Clear room ID from socket
+        socket.roomId = null;
+        socket.playerPosition = null;
+        
+        // Update room list for all clients
+        io.emit('roomListUpdated');
     }
   });
 
