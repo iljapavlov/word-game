@@ -1,75 +1,9 @@
-class RoomListItem extends Phaser.GameObjects.Container {
-  constructor(scene, x, y, room, onJoin, onDelete) {
-    super(scene, x, y);
-
-    // Widen the panel to accommodate the game mode icon
-    const panel = scene.add.rectangle(0, 0, 450, 40, 0x333333, 0.6)
-      .setOrigin(0.5, 0.5)
-      .setInteractive()
-      .on('pointerdown', onJoin);
-
-    // Add game mode icon based on room.gameMode
-    let iconKey;
-    switch (room.gameMode) {
-      case 'realtime':
-        iconKey = 'realtimeIcon';
-        break;
-      case 'singleplayer':
-        iconKey = 'botIcon';
-        break;
-      case 'turnbased':
-        iconKey = 'turnbasedIcon';
-        break;
-      case 'local':
-        iconKey = 'localIcon';
-        break;
-      default:
-        iconKey = 'realtimeIcon'; // Default fallback
-    }
-    const icon = scene.add.image(-210, 0, iconKey).setOrigin(0.5).setScale(0.5);
-
-    // Apply pixel-art font to all text elements
-    const roomText = scene.add.text(-180, 0, room.name, { 
-      fontFamily: 'Daydream', 
-      fontSize: '18px', 
-      fill: '#fff' 
-    }).setOrigin(0, 0.5);
-    const playerText = scene.add.text(100, 0, `${room.players}/${room.maxPlayers}`, {
-      fontFamily: 'Daydream',
-      fontSize: '18px',
-      fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
-    }).setOrigin(0.5);
-    const statusText = scene.add.text(170, 0, room.status, {
-      fontFamily: 'Daydream',
-      fontSize: '16px',
-      fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
-    }).setOrigin(0, 0.5);
-
-    this.add([panel, icon, roomText, playerText, statusText]);
-
-    if (room.isCreator) {
-      const deleteBtn = scene.add.image(180, 0, 'deleteIcon')
-        .setOrigin(0.5)
-        .setScale(0.5)
-        .setInteractive()
-        .on('pointerdown', onDelete);
-      this.add(deleteBtn);
-      addHoverEffect(scene, deleteBtn);
-    }
-
-    addHoverEffect(scene, panel);
-  }
-}
-
-class MenuScene extends Phaser.Scene {
+export class MenuScene extends Phaser.Scene {
   constructor() {
     super({ key: 'MenuScene' });
   }
 
   preload() {
-    // Load pixel font
-    // this.load.script('webfont', 'https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js');
-    
     // Load assets for the menu scene
     this.load.image('logo', 'assets/logo.png');
     this.load.image('createButton', 'assets/create-button.png');
@@ -88,6 +22,7 @@ class MenuScene extends Phaser.Scene {
   }
 
   create() {
+    console.log('Creating menu scene')
     this.initializeVariables();
     this.setupBackgroundElements();
     this.particleManager = new ParticleManager(this);
@@ -120,7 +55,6 @@ class MenuScene extends Phaser.Scene {
   }
 
   createLogo() {
-    // Add logo
     this.add.image(this.width / 2, 100, 'logo')
       .setOrigin(0.5)
       .setDepth(DEPTHS.UI_ELEMENTS);
@@ -301,7 +235,16 @@ class MenuScene extends Phaser.Scene {
       } else {
         maxPlayers = 2; // Public Match or Local Multiplayer
       }
-      window.socket.emit('createRoom', { name: roomName, settings: { maxPlayers, gameMode } });
+      
+      // Make sure gameMode is explicitly passed
+      console.log(`Creating room with game mode: ${gameMode}`);
+      window.socket.emit('createRoom', { 
+        name: roomName, 
+        settings: { 
+          maxPlayers, 
+          gameMode: gameMode || 'standard'
+        } 
+      });
     }
   }
 
@@ -369,7 +312,13 @@ class MenuScene extends Phaser.Scene {
     
     window.socket.on('joinedRoom', (data) => {
       window.socket.playerPosition = data.position;
-      console.log('Joined room as:', window.socket.playerPosition);
+      window.socket.gameMode = data.gameMode;
+      console.log('Joined room', data.roomId ,'as:', window.socket.playerPosition, 'Game mode:', window.socket.gameMode);
+      
+      // Store the room ID in local storage for reconnection
+      localStorage.setItem('lastRoomId', data.roomId);
+      
+      // Start the waiting scene
       this.scene.start('WaitingScene', { roomId: data.roomId });
       this.scene.stop('MenuScene');
     });
@@ -433,5 +382,69 @@ class MenuScene extends Phaser.Scene {
     window.onpopstate = null;
     
     this.events.off('wake');
+  }
+}
+
+
+export class RoomListItem extends Phaser.GameObjects.Container {
+  constructor(scene, x, y, room, onJoin, onDelete) {
+    super(scene, x, y);
+
+    // Widen the panel to accommodate the game mode icon
+    const panel = scene.add.rectangle(0, 0, 450, 40, 0x333333, 0.6)
+      .setOrigin(0.5, 0.5)
+      .setInteractive()
+      .on('pointerdown', onJoin);
+
+    // Add game mode icon based on room.gameMode
+    let iconKey;
+    switch (room.gameMode) {
+      case 'realtime':
+        iconKey = 'realtimeIcon';
+        break;
+      case 'singleplayer':
+        iconKey = 'botIcon';
+        break;
+      case 'turnbased':
+        iconKey = 'turnbasedIcon';
+        break;
+      case 'local':
+        iconKey = 'localIcon';
+        break;
+      default:
+        iconKey = 'realtimeIcon'; // Default fallback
+    }
+    const icon = scene.add.image(-210, 0, iconKey).setOrigin(0.5).setScale(0.1);
+
+    // Apply pixel-art font to all text elements
+    const roomText = scene.add.text(-180, 0, room.name, { 
+      fontFamily: 'Daydream', 
+      fontSize: '18px', 
+      fill: '#fff' 
+    }).setOrigin(0, 0.5);
+    const playerText = scene.add.text(100, 0, `${room.players}/${room.maxPlayers}`, {
+      fontFamily: 'Daydream',
+      fontSize: '18px',
+      fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
+    }).setOrigin(0.5);
+    const statusText = scene.add.text(170, 0, room.status, {
+      fontFamily: 'Daydream',
+      fontSize: '16px',
+      fill: room.status === 'Open' ? '#7CFC00' : '#FF6347'
+    }).setOrigin(0, 0.5);
+
+    this.add([panel, icon, roomText, playerText, statusText]);
+
+    if (room.isCreator) {
+      const deleteBtn = scene.add.image(180, 0, 'deleteIcon')
+        .setOrigin(0.5)
+        .setScale(0.5)
+        .setInteractive()
+        .on('pointerdown', onDelete);
+      this.add(deleteBtn);
+      addHoverEffect(scene, deleteBtn);
+    }
+
+    addHoverEffect(scene, panel);
   }
 }

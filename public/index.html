@@ -32,101 +32,96 @@
       height: 100%;
       width: 100%;
     }
+
+    /* Music control button */
+    #music-control {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      background-color: rgba(0, 0, 0, 0.5);
+      border: none;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    #music-control img {
+      width: 24px;
+      height: 24px;
+    }
   </style>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
   
-  <script src="js/constants.js"></script>
-  <script src="js/utils.js"></script>
-  <script src="js/ParticleManager.js"></script>
-  <script src="js/MenuScene.js"></script>
-  <script src="js/WaitingScene.js"></script>
-  <script src="js/CountdownScene.js"></script>
-  <script src="js/GameScene.js"></script>
+  <!-- Load non-module scripts first -->
+  <script src="client/utils/constants.js"></script>
+  <script src="client/utils/utils.js"></script>
+  <script src="client/utils/MusicManager.js"></script>
+  <script src="client/game/ParticleManager.js"></script>
+  
+  <!-- Main script will be loaded as a module -->
+  <script type="module" src="client/main.js"></script>
 </head>
 <body>
   <div class="hiddenFontLoader">.</div>
   <div id="game-container"></div>
+  <button id="music-control">
+    <img src="assets/sound-on.png" alt="Toggle Music" id="music-icon">
+  </button>
 
   <script>
-    const socket = io();
-    window.socket = socket;
-  
-    // Get or create a stable player ID from local storage (more persistent than session storage)
-    let playerId = localStorage.getItem('playerId');
-    if (!playerId) {
-      playerId = 'player_' + Math.random().toString(36).substr(2, 9); // Generate a unique ID
-      localStorage.setItem('playerId', playerId); // Store it in local storage for persistence
-    }
-    window.playerId = playerId; // Make it globally accessible for Phaser scenes
-  
-    // Send the player ID to the server
-    socket.emit('setPlayerId', playerId);
-  
-    // Handle room joining from URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const roomIdFromUrl = urlParams.get('room');
-    if (roomIdFromUrl) {
-      window.socket.emit('joinRoom', roomIdFromUrl);
-    }
-  
-    // Phaser game configuration
-    const config = {
-      type: Phaser.AUTO,
-      scale: {
-        mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: 800,
-        height: 800,
-        parent: 'game-container'
-      },
-      scene: [MenuScene, WaitingScene, CountdownScene, GameScene],
-      physics: {
-        default: 'arcade',
-        arcade: {
-          gravity: { y: 0 },
-          debug: false
-        }
+    // Music control setup
+    document.addEventListener('DOMContentLoaded', () => {
+      const musicControl = document.getElementById('music-control');
+      const musicIcon = document.getElementById('music-icon');
+      
+      // Initialize music manager right away
+      window.musicManager.init();
+      
+      // Try to play music (will likely be blocked, but sets pendingAutoplay flag)
+      window.musicManager.play();
+      
+      // Update icon based on initial mute state
+      if (localStorage.getItem('musicMuted') === 'true') {
+        musicIcon.src = 'assets/sound-off.png';
       }
-    };
-  
-    const game = new Phaser.Game(config);
-  
-    // Socket listeners
-    window.socket.on('socketId', (data) => {
-      window.socketId = data.id;
-      if (data.playerId) {
-        window.playerId = data.playerId;
-      }
-    });
-  
-    window.socket.on('connect', () => {
-      console.log('Connected to server');
-      socket.emit('setPlayerId', playerId);
-      const lastRoomId = localStorage.getItem('lastRoomId');
-      if (lastRoomId) {
-        socket.emit('reconnectToRoom', lastRoomId);
-      }
-    });
-  
-    window.socket.on('startGame', (data) => {
-      console.log('Received startGame:', data.message);
-      game.scene.getScenes(true).forEach(scene => {
-        game.scene.stop(scene.scene.key);
+      
+      // Toggle mute on button click
+      musicControl.addEventListener('click', (e) => {
+        const isMuted = window.musicManager.toggleMute();
+        musicIcon.src = isMuted ? 'assets/sound-off.png' : 'assets/sound-on.png';
+        
+        e.stopPropagation();
       });
-      console.log('Starting CountdownScene');
-      game.scene.start('CountdownScene');
-      console.log('Active scenes:', game.scene.getScenes(true).map(s => s.scene.key));
-    });
-  
-    window.socket.on('gameRestarted', (data) => {
-      console.log('Game restarted:', data.message);
-      window.givenWord = data.givenWord;
-      if (game.scene.isActive('GameScene')) {
-        game.scene.stop('GameScene');
+      
+      // Add a visual indicator if music is pending
+      if (window.musicManager.isPending) {
+        const checkPendingStatus = setInterval(() => {
+          if (window.musicManager.isPending()) {
+            musicControl.style.animation = 'pulse 2s infinite';
+          } else {
+            musicControl.style.animation = '';
+            clearInterval(checkPendingStatus);
+          }
+        }, 1000);
       }
-      game.scene.start('CountdownScene');
     });
+    
+    // Add a simple pulse animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+        100% { transform: scale(1); }
+      }
+    `;
+    document.head.appendChild(style);
   </script>
 </body>
 </html>

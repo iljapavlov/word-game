@@ -1,10 +1,14 @@
+const FONTS = {
+  PRIMARY: 'Daydream',
+};
+
 const DEPTHS = {
   BACKGROUND: 0,
   PARTICLES: 1,
   UI_BG: 2,
   UI_ELEMENTS: 3,
-  MODAL_BG: 4,
-  MODAL: 5,
+  MODAL_BG: 10,
+  MODAL: 11,
 };
   
 const COLORS = {
