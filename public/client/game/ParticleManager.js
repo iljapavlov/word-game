@@ -161,21 +161,56 @@ class ParticleManager {
     }
   }
 
-  createExplosion(x, y) {
-    const particles = this.scene.add.particles('pixelSakura1');
-    const emitter = particles.createEmitter({
+  createExplosion(x, y, size = 1) {
+    // Create explosion texture if it doesn't exist
+    if (!this.scene.textures.exists('explosionParticle')) {
+      const graphics = this.scene.add.graphics();
+      graphics.fillStyle(0xff6600, 1); // Orange color
+      graphics.fillRect(0, 0, 8, 8);
+      graphics.generateTexture('explosionParticle', 8, 8);
+      graphics.destroy();
+    }
+    
+    // Create particles for the explosion
+    const particles = this.scene.add.particles('explosionParticle');
+    
+    // Main explosion
+    const mainEmitter = particles.createEmitter({
       x: x,
       y: y,
-      speed: { min: 100, max: 200 },
+      speed: { min: 30 , max: 80 },
       angle: { min: 0, max: 360 },
-      scale: { start: 1, end: 0 },
-      lifespan: 800,
-      quantity: 20,
+      scale: { start: 10 * size, end: 0.5 },
+      alpha: { start: 1, end: 0 },
+      tint: [0xff0000, 0xff6600, 0xffff00], // Fire colors
+      lifespan: { min: 600, max: 900 },
+      quantity: 20 * size,
       blendMode: 'ADD'
     });
     
+    // Smoke after explosion
+    const smokeEmitter = particles.createEmitter({
+      x: x,
+      y: y,
+      speed: { min: 50 * size, max: 100 * size },
+      angle: { min: 0, max: 360 },
+      scale: { start: 2 * size, end: 4 * size },
+      alpha: { start: 0.4, end: 0 },
+      tint: [0x333333, 0x555555],
+      lifespan: { min: 1000, max: 2000 },
+      quantity: 10 * size,
+      frequency: 50,
+      blendMode: 'NORMAL'
+    });
+    
+    // Stop emitting after a short time
+    this.scene.time.delayedCall(300, () => {
+      mainEmitter.stop();
+      smokeEmitter.stop();
+    });
+    
     // Auto-destroy after animation completes
-    this.scene.time.delayedCall(800, () => {
+    this.scene.time.delayedCall(2000, () => {
       particles.destroy();
     });
   }

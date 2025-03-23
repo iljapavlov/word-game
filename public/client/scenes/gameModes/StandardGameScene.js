@@ -175,6 +175,13 @@ export class StandardGameScene extends BaseScene {
                   // Play hit sound
                   this.hitSound.play();
                   
+                  // Create explosion at the impact point
+                  this.particleManager.createExplosion(
+                      fireballSprite.x, 
+                      fireballSprite.y,
+                      damage / 20 // Size based on damage
+                  );
+                  
                   // Screen shake
                   this.shakeScreen(damage);
                   

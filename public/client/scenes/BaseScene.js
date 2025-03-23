@@ -41,6 +41,17 @@ export class BaseScene extends Phaser.Scene {
 
     initLayout() {
         initLayoutValues.call(this);
+    
+        // Create a semi-transparent filter layer over the game
+        // This will be above game elements but below UI elements
+        this.filterLayer = this.add.rectangle(
+            this.cameras.main.width / 2,
+            this.cameras.main.height / 2,
+            this.cameras.main.width,
+            this.cameras.main.height,
+            0xfff2cc, // Slight blue tint
+            0.07 // Very subtle transparency
+        ).setDepth(1.5); // Between game elements (1) and UI elements (2+)
     }
 
     returnToLobby() {
