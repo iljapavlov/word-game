@@ -54,6 +54,100 @@
       width: 24px;
       height: 24px;
     }
+
+    .modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 2000;
+    }
+    
+    .modal-content {
+      background-color: #222;
+      padding: 20px;
+      border-radius: 10px;
+      text-align: center;
+      max-width: 400px;
+      width: 80%;
+    }
+    
+    .modal-content h2 {
+      color: #fff;
+      font-family: 'Daydream', sans-serif;
+      margin-bottom: 20px;
+    }
+    
+    .modal-content input {
+      width: 100%;
+      padding: 10px;
+      margin-bottom: 20px;
+      background-color: #333;
+      border: none;
+      color: #fff;
+      font-family: 'Daydream', sans-serif;
+      font-size: 16px;
+    }
+    
+    .modal-content button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: 'Daydream', sans-serif;
+    }
+    
+    #users-list {
+      max-height: 300px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+      text-align: left;
+    }
+    
+    #users-list .user-item {
+      padding: 8px;
+      border-bottom: 1px solid #444;
+      color: #fff;
+      font-family: 'Daydream', sans-serif;
+    }
+    
+    #online-users-button {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 1000;
+      background-color: rgba(0, 0, 0, 0.5);
+      color: white;
+      border: none;
+      border-radius: 5px;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-family: 'Daydream', sans-serif;
+      font-size: 12px;
+    }
+
+    .online-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #4CAF50;
+      margin-right: 5px;
+      animation: pulse-green 2s infinite;
+    }
+    
+    @keyframes pulse-green {
+      0% { transform: scale(0.8); opacity: 0.7; }
+      50% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(0.8); opacity: 0.7; }
+    }
   </style>
   <script src="/socket.io/socket.io.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
@@ -69,8 +163,25 @@
 </head>
 <body>
   <div class="hiddenFontLoader">.</div>
+  <!-- Add this before the game-container div -->
+  <div id="username-modal" class="modal">
+    <div class="modal-content">
+      <h2>Enter Your Username</h2>
+      <input type="text" id="username-input" placeholder="Username" maxlength="15">
+      <button id="username-submit">Play Game</button>
+    </div>
+  </div>
+
+  <!-- Add this for the online users modal -->
+  <div id="online-users-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <h2>Online Users</h2>
+      <div id="users-list"></div>
+      <button id="close-users-modal">Close</button>
+    </div>
+  </div>
   <div id="game-container"></div>
-  <button id="music-control">
+  <button id="music-control" tabindex="-1">
     <img src="assets/sound-on.png" alt="Toggle Music" id="music-icon">
   </button>
 
@@ -122,6 +233,97 @@
       }
     `;
     document.head.appendChild(style);
+  </script>
+  <script>
+    // Username handling
+    document.addEventListener('DOMContentLoaded', function() {
+      const usernameModal = document.getElementById('username-modal');
+      const usernameInput = document.getElementById('username-input');
+      const usernameSubmit = document.getElementById('username-submit');
+      
+      // Check if username is already stored
+      const storedUsername = localStorage.getItem('username');
+      if (storedUsername) {
+        usernameInput.value = storedUsername;
+        window.username = storedUsername; // Set the window.username
+        usernameModal.style.display = 'none'; // Hide the modal if username exists
+        
+        // Emit username to server immediately if socket is available
+        if (window.socket) {
+          window.socket.emit('setUsername', storedUsername);
+        }
+      }
+      
+      usernameSubmit.addEventListener('click', function() {
+        const username = usernameInput.value.trim();
+        if (username) {
+          localStorage.setItem('username', username);
+          window.username = username;
+          usernameModal.style.display = 'none';
+          
+          // Emit username to server
+          if (window.socket) {
+            window.socket.emit('setUsername', username);
+          }
+        }
+      });
+      
+      // Online users modal
+      const onlineUsersModal = document.getElementById('online-users-modal');
+      onlineUsersModal.tabIndex = -1;
+
+      const closeUsersModal = document.getElementById('close-users-modal');
+      closeUsersModal.tabIndex = -1;
+      
+      // Create online users button
+      const onlineUsersButton = document.createElement('button');
+      onlineUsersButton.id = 'online-users-button';
+      onlineUsersButton.innerHTML = 'Online Users';
+      onlineUsersButton.tabIndex = -1; // Prevent tab selection
+      document.body.appendChild(onlineUsersButton);
+      
+      
+      onlineUsersButton.addEventListener('click', function() {
+        // Request updated user list
+        if (window.socket) {
+          window.socket.emit('requestOnlineUsers');
+        }
+        onlineUsersModal.style.display = 'flex';
+      });
+      
+      closeUsersModal.addEventListener('click', function() {
+        onlineUsersModal.style.display = 'none';
+      });
+      
+      // Handle socket events for online users
+      if (window.socket) {
+        window.socket.on('onlineUsers', function(users) {
+          const usersList = document.getElementById('users-list');
+          usersList.innerHTML = '';
+          
+          users.forEach(function(user) {
+            const userItem = document.createElement('div');
+            userItem.className = 'user-item';
+            userItem.textContent = user;
+            usersList.appendChild(userItem);
+          });
+          
+          // Add pulsing green dot if there are other users online
+          if (users.length > 1) {
+            if (!onlineUsersButton.querySelector('.online-dot')) {
+              const onlineDot = document.createElement('span');
+              onlineDot.className = 'online-dot';
+              onlineUsersButton.prepend(onlineDot);
+            }
+          } else {
+            const existingDot = onlineUsersButton.querySelector('.online-dot');
+            if (existingDot) {
+              existingDot.remove();
+            }
+          }
+        });
+      }
+    });
   </script>
 </body>
 </html>

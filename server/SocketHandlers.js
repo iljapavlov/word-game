@@ -3,6 +3,9 @@ const { createRoom, deleteRoom, rooms } = require('./RoomManager.js');
 
 const disconnectedPlayers = {};
 
+// Add to the top of the file with other variables
+const onlineUsers = new Map(); // Map to store socket.id -> username
+
 function setupSocketHandlers(io, socket, rooms, playerSockets) {
   // Send socket ID to client - update to send playerId instead
   socket.emit('socketId', { id: socket.id, playerId: socket.playerId });
@@ -125,6 +128,13 @@ function setupSocketHandlers(io, socket, rooms, playerSockets) {
 
   socket.on('disconnect', () => {
     console.log(`Player ${socket.playerId} disconnected`);
+    
+    // Remove from online users
+    onlineUsers.delete(socket.id);
+    
+    // Broadcast updated user list
+    io.emit('onlineUsers', Array.from(onlineUsers.values()));
+
     delete playerSockets[socket.playerId]; // Clean up
 
     const roomId = socket.roomId;
@@ -371,6 +381,21 @@ function setupSocketHandlers(io, socket, rooms, playerSockets) {
         givenWord: room.givenWord,
         hp: room.hp
     });
+  });
+
+  // Handle username setting
+  socket.on('setUsername', (username) => {
+    console.log(`Player ${socket.playerId} set username to ${username}`);
+    socket.username = username;
+    onlineUsers.set(socket.id, username);
+    
+    // Broadcast updated user list to all clients
+    io.emit('onlineUsers', Array.from(onlineUsers.values()));
+  });
+  
+  // Handle request for online users
+  socket.on('requestOnlineUsers', () => {
+    socket.emit('onlineUsers', Array.from(onlineUsers.values()));
   });
   
   // Handle game restart request

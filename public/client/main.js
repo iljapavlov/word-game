@@ -16,8 +16,19 @@ if (!playerId) {
 }
 window.playerId = playerId;
 
+// Get username from local storage
+let username = localStorage.getItem('username');
+if (username) {
+  window.username = username;
+}
+
 // Send the player ID to the server
 socket.emit('setPlayerId', playerId);
+
+// Send username if available
+if (username) {
+  socket.emit('setUsername', username);
+}
 
 // Handle room joining from URL parameters
 const urlParams = new URLSearchParams(window.location.search);
