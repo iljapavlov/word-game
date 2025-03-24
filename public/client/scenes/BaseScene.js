@@ -14,7 +14,8 @@ export class BaseScene extends Phaser.Scene {
 
     preload() {
         this.load.image('background', 'assets/bg2.jpg');
-        this.load.image('castle_100', 'assets/castle_100.png');
+        // this.load.image('castle_100', 'assets/castle_100.png');
+        this.load.image('castle_100', 'assets/castle_2.png');
         this.load.image('homeButton', 'assets/home-button.png');
         this.load.image('wordBackground', 'assets/word-bg.png');        
         this.load.image('fireball', 'assets/fireball.png');
